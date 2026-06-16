@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import re
 import time
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
@@ -1500,6 +1501,162 @@ def api_tw_consensus():
 @app.post("/api/grade")
 def api_grade():
     return jsonify(perform_grade())
+
+
+def _norm_name(s):
+    s = unicodedata.normalize("NFKD", str(s or ""))
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    s = s.lower().replace(".", " ").replace("'", " ")
+    s = re.sub(r"[^a-z0-9 ]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    # strip common suffixes
+    parts = [p for p in s.split() if p not in ("jr", "sr", "ii", "iii", "iv")]
+    return " ".join(parts)
+
+
+def final_games_by_date(dates):
+    out = {}
+    for d in sorted(set(dates)):
+        if not d:
+            continue
+        pks = []
+        try:
+            sch = jget("https://statsapi.mlb.com/api/v1/schedule", params={"sportId": 1, "date": d})
+            for dd in sch.get("dates", []):
+                for g in dd.get("games", []):
+                    st = ((g.get("status") or {}).get("abstractGameState") or "")
+                    if st == "Final":
+                        pks.append(str(g.get("gamePk")))
+        except Exception as e:
+            print("schedule(ledger) error", d, e)
+        out[d] = pks
+    return out
+
+
+def boxscore_stats_named(game_pk):
+    bs = jget("https:" + "//statsapi.mlb.com/api/v1/game/" + str(game_pk) + "/boxscore")
+    out = {}
+    for side in ("home", "away"):
+        players = (((bs.get("teams") or {}).get(side) or {}).get("players") or {})
+        for _, prx in players.items():
+            person = prx.get("person") or {}
+            bat = ((prx.get("stats") or {}).get("batting") or {})
+            name = person.get("fullName")
+            if not name or not bat:
+                continue
+            h = int(bat.get("hits") or 0)
+            d2 = int(bat.get("doubles") or 0)
+            t3 = int(bat.get("triples") or 0)
+            hr = int(bat.get("homeRuns") or 0)
+            out[_norm_name(name)] = {
+                "hr": hr, "h": h, "rbi": int(bat.get("rbi") or 0),
+                "tb": h + d2 + 2 * t3 + 3 * hr, "name": name,
+            }
+    return out
+
+
+def _lookup_name(nm, name):
+    key = _norm_name(name)
+    if not key:
+        return None
+    if key in nm:
+        return nm[key]
+    parts = key.split()
+    if len(parts) >= 2:
+        last, fi = parts[-1], parts[0][0]
+        cands = [v for k, v in nm.items()
+                 if k.split() and k.split()[-1] == last and k.split()[0][:1] == fi]
+        if len(cands) == 1:
+            return cands[0]
+    return None
+
+
+def _ledger_market_hit(mk, st):
+    if st is None:
+        return None
+    mk = (mk or "hr").lower()
+    if mk == "hr":
+        return int(st.get("hr") or 0) >= 1
+    if mk == "hits":
+        return int(st.get("h") or 0) >= 1
+    if mk == "hits2":
+        return int(st.get("h") or 0) >= 2
+    if mk == "tb":
+        return int(st.get("tb") or 0) >= 2
+    if mk == "rbi":
+        return int(st.get("rbi") or 0) >= 1
+    return None
+
+
+def perform_grade_ledger(bets):
+    bets = bets or []
+    dates = set()
+    for b in bets:
+        if b.get("dateStr"):
+            dates.add(str(b.get("dateStr"))[:10])
+    games_by_date = final_games_by_date(dates)
+    namemap_by_date = {}
+    for d, pks in games_by_date.items():
+        nm = {}
+        for pk in pks:
+            try:
+                nm.update(boxscore_stats_named(pk))
+            except Exception as e:
+                print("boxscore(named) error", pk, e)
+        namemap_by_date[d] = nm
+    results = []
+    graded = 0
+    waiting = 0
+    for b in bets:
+        bid = b.get("id")
+        d = str(b.get("dateStr") or "")[:10]
+        nm = namemap_by_date.get(d) or {}
+        mk = (b.get("market") or "hr").lower()
+        if mk == "parlay" and isinstance(b.get("legs"), list) and b.get("legs"):
+            win = True
+            ready = True
+            legres = []
+            for leg in b.get("legs"):
+                st = _lookup_name(nm, leg.get("name"))
+                hit = _ledger_market_hit(leg.get("mkt") or "hr", st)
+                if hit is None:
+                    ready = False
+                elif hit is False:
+                    win = False
+                legres.append({"name": leg.get("name"), "hit": hit})
+            if not ready:
+                waiting += 1
+                results.append({"id": bid, "result": "pending", "legs": legres})
+            else:
+                graded += 1
+                results.append({"id": bid, "result": ("win" if win else "loss"), "legs": legres})
+        elif mk in ("hr", "hits", "hits2", "tb", "rbi"):
+            st = _lookup_name(nm, b.get("player"))
+            hit = _ledger_market_hit(mk, st)
+            if hit is None:
+                waiting += 1
+                reason = "no_final_game" if not nm else "player_not_found"
+                results.append({"id": bid, "result": "pending", "reason": reason})
+            else:
+                graded += 1
+                results.append({"id": bid, "result": ("win" if hit else "loss"),
+                                "stat": st, "source": "boxscore"})
+        else:
+            waiting += 1
+            results.append({"id": bid, "result": "pending", "reason": "unsupported_market"})
+    return {"ok": True, "graded": graded, "waiting": waiting, "results": results}
+
+
+@app.post("/api/grade_ledger")
+def api_grade_ledger():
+    body = request.get_json(silent=True) or {}
+    bets = body.get("bets") if isinstance(body, dict) else None
+    if not isinstance(bets, list):
+        return jsonify({"ok": False, "error": "expected JSON {bets:[...]}"}), 400
+    try:
+        return jsonify(perform_grade_ledger(bets))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 502
 
 
 @app.get("/health")
