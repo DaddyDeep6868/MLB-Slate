@@ -1197,7 +1197,79 @@ def _yt_strip_xml(xml):
     return " ".join([x for x in out if x])
 
 
+_YT_INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
+
+
+def _yt_innertube_tracks(vid):
+    clients = [
+        {"clientName": "ANDROID", "clientVersion": "19.09.37", "androidSdkVersion": 30,
+         "ua": "com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip"},
+        {"clientName": "IOS", "clientVersion": "19.09.3",
+         "ua": "com.google.ios.youtube/19.09.3 (iPhone14,3; U; CPU iOS 15_6 like Mac OS X)"},
+        {"clientName": "WEB", "clientVersion": "2.20240101.00.00",
+         "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"},
+    ]
+    for c in clients:
+        try:
+            client = {"clientName": c["clientName"], "clientVersion": c["clientVersion"], "hl": "en", "gl": "US"}
+            if "androidSdkVersion" in c:
+                client["androidSdkVersion"] = c["androidSdkVersion"]
+            body = {"context": {"client": client}, "videoId": vid}
+            r = requests.post("https://www.youtube.com/youtubei/v1/player?key=" + _YT_INNERTUBE_KEY,
+                              json=body,
+                              headers={"User-Agent": c["ua"], "Content-Type": "application/json", "Accept-Language": "en-US,en;q=0.9"},
+                              timeout=20)
+            data = r.json()
+            tracks = (((data.get("captions") or {}).get("playerCaptionsTracklistRenderer") or {}).get("captionTracks")) or []
+            if tracks:
+                return tracks
+        except Exception:
+            continue
+    return []
+
+
+def _yt_pick_track(tracks):
+    if not tracks:
+        return None
+    def score(t):
+        lc = (t.get("languageCode") or "").lower()
+        s = 0
+        if lc.startswith("en"):
+            s += 10
+        if (t.get("kind") or "") != "asr":
+            s += 5
+        return s
+    return (sorted(tracks, key=score, reverse=True)[0] or {}).get("baseUrl")
+
+
+def _yt_track_text(base):
+    if not base:
+        return ""
+    hdr = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36", "Accept-Language": "en-US,en;q=0.9"}
+    try:
+        sep = "&" if "?" in base else "?"
+        r = requests.get(base + sep + "fmt=json3", headers=hdr, timeout=20)
+        j = r.json()
+        out = []
+        for ev in (j.get("events") or []):
+            for seg in (ev.get("segs") or []):
+                t = seg.get("utf8")
+                if t:
+                    out.append(t)
+        txt = re.sub(r"\s+", " ", "".join(out)).strip()
+        if txt:
+            return txt
+    except Exception:
+        pass
+    try:
+        r = requests.get(base, headers=hdr, timeout=20)
+        return _yt_strip_xml(r.text or "")
+    except Exception:
+        return ""
+
+
 def _yt_fetch_transcript(vid):
+    # 1) youtube-transcript-api if it is installed
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
         try:
@@ -1209,30 +1281,29 @@ def _yt_fetch_transcript(vid):
             return txt, "youtube-transcript-api"
     except Exception:
         pass
+    # 2) InnerTube player API \u2014 works from datacenter/server IPs where the watch page is bot-gated
+    try:
+        base = _yt_pick_track(_yt_innertube_tracks(vid))
+        txt = _yt_track_text(base)
+        if txt.strip():
+            return txt, "innertube"
+    except Exception:
+        pass
+    # 3) Last resort: scrape the watch page HTML
     hdr = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36", "Accept-Language": "en-US,en;q=0.9"}
     try:
-        r = requests.get("https://www.youtube.com/watch?v=" + vid, headers=hdr, timeout=20)
+        r = requests.get("https://www.youtube.com/watch?v=" + vid, headers=hdr, timeout=20, cookies={"CONSENT": "YES+1"})
         page = r.text or ""
         m = re.search(r'"captionTracks":(\[.*?\])', page)
-        if not m:
-            return None, "no-captions-on-page"
-        tracks = json.loads(m.group(1))
-        if not tracks:
-            return None, "no-caption-tracks"
-        base = None
-        for t in tracks:
-            if (t.get("languageCode") or "").lower().startswith("en"):
-                base = t.get("baseUrl")
-                break
-        if not base:
-            base = tracks[0].get("baseUrl")
-        if not base:
-            return None, "no-base-url"
-        rx = requests.get(base, headers=hdr, timeout=20)
-        txt = _yt_strip_xml(rx.text or "")
-        return (txt, "caption-track") if txt.strip() else (None, "empty-track")
-    except Exception as e:
-        return None, "fetch-error: " + str(e)[:160]
+        if m:
+            tracks = json.loads(m.group(1))
+            base = _yt_pick_track(tracks)
+            txt = _yt_track_text(base)
+            if txt.strip():
+                return txt, "watch-page"
+    except Exception:
+        pass
+    return None, "no-captions (tried transcript-api, innertube, watch-page)"
 
 
 @app.post("/api/research/youtube/transcript")
