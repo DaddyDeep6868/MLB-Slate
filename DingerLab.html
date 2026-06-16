@@ -1340,8 +1340,8 @@ html{scroll-behavior:smooth;scrollbar-gutter:stable}body{overflow-y:auto;overscr
 <button class="mobile-slip-fab hidden" id="mobileSlipFab">🧾 Open slip</button>
 
 <script>
-const APP_VERSION = 'v4.24';
-const APP_UPDATED = 'Updated Jun 14, 2026 — Wider consensus search + per-search tweet counts + low-volume guidance';
+const APP_VERSION = 'v4.25';
+const APP_UPDATED = 'Updated Jun 14, 2026 — ULX HR Parlay Builder: Anchor/Value/Longshot roles, 7-check green light, fade-the-chalk';
 {
   const av=document.getElementById('appVersion');
   if(av) av.textContent=APP_VERSION+' · '+APP_UPDATED;
@@ -5591,7 +5591,7 @@ function v43DecisionClass(label){return label==='Strong Edge'?'strong':label==='
 function v43HrProbabilityCore(profile){profile=profile||{};const p=profile.p||{},g=profile.g||{};const dna=profile.dna||((typeof v42PowerDNA==='function')?v42PowerDNA(p,g):{});const comp=profile.components||{};const pa=Math.max(1,v43SafeNum(p.PA,1));const expPA=v43ExpectedPA(p);const seasonHrPerPa=clamp(v43SafeNum(p.HR,0)/pa,.001,.13);const recentHrPerPa=clamp(v43SafeNum(p.recHR,0)/Math.max(1,v43SafeNum(p.recPA,1)),.001,.17);const seasonGameProb=1-Math.pow(1-seasonHrPerPa,expPA);const recentGameProb=1-Math.pow(1-recentHrPerPa,expPA);const marketModel=(p._mkt&&p._mkt.hr&&p._mkt.hr.p!=null)?Number(p._mkt.hr.p):(profile.mk==='hr'?Number(profile.prob||0):0);const pitcherMult=clamp(.72+(v43SafeNum(comp.pitcher,50)/100)*.68,.72,1.40);const parkMult=clamp(1+(v43SafeNum((function(){try{return v21ParkCalc(g).total;}catch(e){return 0;}})(),0)/100),.82,1.28);const swingMult=clamp(.72+(v43SafeNum(dna.swingPowerScore,50)/100)*.66,.72,1.38);const seasonMult=clamp(.78+(v43SafeNum(dna.seasonPowerScore,50)/100)*.54,.78,1.32);const paMult=clamp(expPA/4.15,.65,1.20);const fadeMult=clamp(1-(Math.max(0,v43SafeNum(dna.fadeRisk,0)-55)/170),.72,1.04);let model=marketModel>0?marketModel*.48+seasonGameProb*.28+recentGameProb*.10+clamp((seasonGameProb*.70+recentGameProb*.30)*pitcherMult*parkMult*swingMult*paMult*fadeMult,.003,.26)*.14:clamp((seasonGameProb*.68+recentGameProb*.32)*pitcherMult*parkMult*swingMult*seasonMult*paMult*fadeMult,.003,.24);model=clamp(model,.003,.245);const mo=p._mktOdds&&p._mktOdds.hr;const bookAmerican=(mo&&mo.best!=null)?Number(mo.best):(profile.mk==='hr'&&profile.american!=null?Number(profile.american):null);const marketProb=(mo&&mo.mktProb!=null)?Number(mo.mktProb):v43OddsToProb(bookAmerican);const fairAmerican=v43ProbToAmerican(model);const edgeProb=marketProb!=null?model-marketProb:null;const ev=bookAmerican!=null?((model*((bookAmerican>0?bookAmerican/100:100/Math.abs(bookAmerican))))-(1-model)):null;let label='Need Price';if(edgeProb!=null){if(edgeProb>=.018&&ev>=.05&&v43SafeNum(dna.fadeRisk,0)<72)label='Strong Edge';else if(edgeProb>=.007&&ev>=0)label='Playable';else if(edgeProb>=-.006)label='Fair Price';else label='Overpriced / Fade';}
 const chips=[];chips.push(['Model '+fmtPct(model),'info']);chips.push(['Fair '+fmtAmerican(fairAmerican),'info']);if(bookAmerican!=null)chips.push(['Book '+fmtAmerican(bookAmerican),edgeProb>=0?'good':'bad']);if(edgeProb!=null)chips.push([(edgeProb>=0?'+':'')+(edgeProb*100).toFixed(1)+'% edge',edgeProb>=.007?'good':edgeProb<-.006?'bad':'warn']);if(dna.swingPowerScore>=78)chips.push(['Power backed','good']);if(dna.fadeRisk>=72)chips.push(['Fade risk','warn']);return {modelProb:model,fairAmerican:fairAmerican,bookAmerican:bookAmerican,marketProb:marketProb,edgeProb:edgeProb,ev:ev,label:label,labelClass:v43DecisionClass(label),expectedPA:expPA,seasonGameProb:seasonGameProb,recentGameProb:recentGameProb,pitcherMult:pitcherMult,parkMult:parkMult,swingMult:swingMult,fadeMult:fadeMult,chips:chips,dna:dna};}
 function v43EdgeCoreHtml(core,compact){if(!core)return '';const edgeTxt=core.edgeProb==null?'Need odds':((core.edgeProb>=0?'+':'')+(core.edgeProb*100).toFixed(1)+'%');return '<div class="v43-edge-card"><div class="v43-edge-head"><div><div class="v43-edge-title">🎯 HR Probability + Edge Core</div><div class="v43-edge-sub">Lean decision layer: model HR probability, fair odds, sportsbook implied probability, and whether the price is actually worth betting.</div></div><div class="v43-edge-label '+core.labelClass+'">'+esc(core.label)+'</div></div><div class="v43-edge-grid"><div class="v43-edge-metric"><span>Model HR Prob</span><b>'+fmtPct(core.modelProb)+'</b></div><div class="v43-edge-metric"><span>Fair Odds</span><b>'+fmtAmerican(core.fairAmerican)+'</b></div><div class="v43-edge-metric"><span>Book Odds</span><b>'+(core.bookAmerican!=null?fmtAmerican(core.bookAmerican):'—')+'</b></div><div class="v43-edge-metric"><span>Market Prob</span><b>'+(core.marketProb!=null?fmtPct(core.marketProb):'—')+'</b></div><div class="v43-edge-metric"><span>Edge</span><b class="'+(core.edgeProb!=null&&core.edgeProb>=0?'v43-edge-positive':'v43-edge-negative')+'">'+edgeTxt+'</b></div><div class="v43-edge-metric"><span>Expected PA</span><b>'+core.expectedPA.toFixed(1)+'</b></div></div><div class="v43-mini-decision">'+core.chips.slice(0,compact?4:8).map(function(x){return '<span class="v43-chip '+(x[1]||'info')+'">'+esc(x[0])+'</span>';}).join('')+'</div></div>';}
-function v43ApplyEdge(profile){profile=profile||{};const core=v43HrProbabilityCore(profile);profile.hrEdgeCore=core;profile.hrModelProb=core.modelProb;profile.hrFairAmerican=core.fairAmerican;profile.hrEdgeLabel=core.label;profile.badges=profile.badges||[];profile.strengths=profile.strengths||[];profile.risks=profile.risks||[];if(profile.mk==='hr'){profile.prob=core.modelProb;profile.fairAmerican=core.fairAmerican;if(core.label==='Strong Edge'){profile.badges.unshift(['🎯 Strong Edge','hot']);profile.strengths.unshift('Model HR probability '+fmtPct(core.modelProb)+' beats market by '+(core.edgeProb*100).toFixed(1)+' points');profile.edgeScore=Math.round(clamp((profile.edgeScore||0)+5,0,99));profile.action='Attack';}else if(core.label==='Playable'){profile.badges.unshift(['🎯 Playable Edge','good']);profile.strengths.unshift('Fair odds '+fmtAmerican(core.fairAmerican)+' versus book '+(core.bookAmerican!=null?fmtAmerican(core.bookAmerican):'—'));profile.edgeScore=Math.round(clamp((profile.edgeScore||0)+2,0,99));if((profile.edgeScore||0)>=66)profile.action='Playable';}else if(core.label==='Overpriced / Fade'){profile.badges.unshift(['🚫 Price Fade','warn']);profile.risks.unshift('Book price is worse than model fair value: model '+fmtPct(core.modelProb)+' vs market '+(core.marketProb!=null?fmtPct(core.marketProb):'—'));profile.edgeScore=Math.round(clamp((profile.edgeScore||0)-8,0,99));profile.action=(profile.edgeScore>=66?'Playable':'Wait');}else if(core.label==='Need Price'){profile.badges.unshift(['💵 Need Price','info']);profile.risks.unshift('No sportsbook HR price loaded yet; use probability/fair odds before betting');}}
+function v43ApplyEdge(profile){profile=profile||{};const core=v43HrProbabilityCore(profile);profile.hrEdgeCore=core;profile.hrModelProb=core.modelProb;profile.hrFairAmerican=core.fairAmerican;profile.hrEdgeLabel=core.label;profile.badges=profile.badges||[];profile.strengths=profile.strengths||[];profile.risks=profile.risks||[];if(profile.mk==='hr'){profile.prob=core.modelProb;profile.fairAmerican=core.fairAmerican;if(core.label==='Strong Edge'){profile.badges.unshift(['🎯 Strong Edge','hot']);profile.strengths.unshift('Model HR probability '+fmtPct(core.modelProb)+' beats market by '+(core.edgeProb*100).toFixed(1)+' points');profile.edgeScore=Math.round(clamp((profile.edgeScore||0)+5,0,99));profile.action='Attack';}else if(core.label==='Playable'){profile.badges.unshift(['🎯 Playable Edge','good']);profile.strengths.unshift('Fair odds '+fmtAmerican(core.fairAmerican)+' versus book '+(core.bookAmerican!=null?fmtAmerican(core.bookAmerican):'—'));profile.edgeScore=Math.round(clamp((profile.edgeScore||0)+2,0,99));if((profile.edgeScore||0)>=66)profile.action='Playable';}else if(core.label==='Overpriced / Fade'){profile.badges.unshift(['�� Price Fade','warn']);profile.risks.unshift('Book price is worse than model fair value: model '+fmtPct(core.modelProb)+' vs market '+(core.marketProb!=null?fmtPct(core.marketProb):'—'));profile.edgeScore=Math.round(clamp((profile.edgeScore||0)-8,0,99));profile.action=(profile.edgeScore>=66?'Playable':'Wait');}else if(core.label==='Need Price'){profile.badges.unshift(['💵 Need Price','info']);profile.risks.unshift('No sportsbook HR price loaded yet; use probability/fair odds before betting');}}
 return profile;}
 const v43BaseEdgeProfile=v30EdgeProfile;
 v30EdgeProfile=function(c){return v43ApplyEdge(v43BaseEdgeProfile(c));};
@@ -7482,6 +7482,83 @@ function addSgpLegs(b64){
     toast('Added', added+' leg'+(added===1?'':'s')+' added to your betslip.', '+');
   }catch(e){ console.error(e); toast('Error','Could not add these legs.','!'); }
 }
+
+/* v4.25 ULX HR Parlay Builder — build with roles, not names (Anchor → Value → Longshot) */
+function dlUlxOdds(r){var o=(r.hrBookAmerican!=null?r.hrBookAmerican:r.hrFairAmerican);o=Number(o);return Number.isFinite(o)?o:9999;}
+function dlUlxConsensusMap(){var s={};try{(window.__CONS_PLAYS||[]).slice(0,8).forEach(function(p){if(p&&p.name)s[String(p.name).toLowerCase()]=p;});}catch(e){}return s;}
+function dlUlxArche(r){var pull=(r.pullAirProxy||0)>=0.27?'Pull':'Spray';var lift=(r.launchPathScore||0)>=65?'Lift':'Flat';return pull+'/'+lift;}
+function dlUlxEnvOk(r){return (r.parkWeatherBoost||0)>=0;}
+function dlUlxLeg(r,role,chalk){return {role:role,gamePk:r.gamePk,name:r.player,game:r.game,team:r.team,odds:dlUlxOdds(r),fair:(r.hrBookAmerican==null),modelProb:r.hrModelProb,edgeProb:r.hrEdgeProb,edgeLabel:r.hrEdgeLabel,spot:r.lineupSpot,arche:dlUlxArche(r),env:r.parkWeatherBoost||0,park:r.park,swing:r.swingPowerScore,powerClass:r.powerClass,fade:r.fadeRiskScore,pitcherWeak:r.pitcherWeaknessScore,chalk:!!chalk[String(r.player).toLowerCase()]};}
+function dlBuildUlxParlay(){
+  var rows=(DL_FEATURE_STORE||[]).filter(function(r){return r.market==='hr'&&r.lineupStatus!=='out'&&r.hrModelProb!=null;});
+  if(rows.length<3)return {error:'Need at least 3 HR-eligible bats. Fetch today\u2019s slate and build the Data feature store first.'};
+  var chalk=dlUlxConsensusMap();var hasCons=Object.keys(chalk).length>0;
+  function isChalk(r){return !!chalk[String(r.player).toLowerCase()];}
+  var used=[];
+  function divPen(r){var pen=0;used.forEach(function(u){if(u.gamePk===r.gamePk)pen+=6;if(dlUlxArche(u)===dlUlxArche(r))pen+=5;});return pen;}
+  function pick(bands,scoreFn){for(var bi=0;bi<bands.length;bi++){var lo=bands[bi][0],hi=bands[bi][1];var c=rows.filter(function(r){var o=dlUlxOdds(r);return o>=lo&&o<=hi&&used.indexOf(r)<0;});if(!c.length)continue;c.sort(function(a,b){return (scoreFn(b)-divPen(b))-(scoreFn(a)-divPen(a));});return c[0];}return null;}
+  var anchor=pick([[150,650],[120,800],[80,1200]],function(r){return (r.overSignal||0)+(r.edgeScore||0)*0.4+(r.hrModelProb||0)*120+((r.lineupSpot>=3&&r.lineupSpot<=5)?6:0);});if(anchor)used.push(anchor);
+  var value=pick([[450,1000],[400,1300],[300,1600]],function(r){return (r.hrEdgeProb||0)*400+(r.overSignal||0)*0.6+((r.lineupSpot>=6)?5:0)-(isChalk(r)?10:0);});if(value)used.push(value);
+  var longshot=pick([[850,2200],[700,2800],[600,4000]],function(r){return (r.swingPowerScore||0)*0.7+(r.hrModelProb||0)*120+((r.lineupSpot>=7)?6:0)+(dlUlxEnvOk(r)?5:0)-(isChalk(r)?12:0);});if(longshot)used.push(longshot);
+  var rest=rows.filter(function(r){return used.indexOf(r)<0;}).sort(function(a,b){return (b.overSignal||0)-(a.overSignal||0);});
+  if(!anchor){anchor=rest.shift();if(anchor)used.push(anchor);}
+  if(!value){value=rest.shift();if(value)used.push(value);}
+  if(!longshot){longshot=rest.shift();if(longshot)used.push(longshot);}
+  if(!anchor||!value||!longshot)return {error:'Could not assemble three distinct legs from the current slate.'};
+  var legs=[dlUlxLeg(anchor,'Anchor',chalk),dlUlxLeg(value,'Value Bat',chalk),dlUlxLeg(longshot,'Longshot',chalk)];
+  var spots=legs.map(function(l){return l.spot||0;});var arches=legs.map(function(l){return l.arche;});
+  var distinctSpots=spots.filter(function(v,i){return v&&spots.indexOf(v)===i;}).length;
+  var distinctArche=arches.filter(function(v,i){return arches.indexOf(v)===i;}).length;
+  var envOkCount=legs.filter(function(l){return l.env>=0;}).length;
+  var checks=[
+    ['Anchor identified',legs[0].odds<=700],
+    ['Value bat found',legs[1].odds>=450&&legs[1].odds<=1100],
+    ['Longshot selected',legs[2].odds>=850],
+    ['Different archetypes',distinctArche>=2],
+    ['Different lineup spots',distinctSpots>=2],
+    ['Good matchups',legs.every(function(l){return l.edgeLabel!=='Overpriced / Fade';})],
+    ['Favorable HR environment',envOkCount>=2],
+    ['Reasonable odds (value)',legs.every(function(l){return l.edgeProb==null||l.edgeProb>=-0.012;})],
+    ['Recent form / hard contact',legs.reduce(function(s,l){return s+(l.swing||0);},0)/3>=58],
+    ['Makes sense on paper',legs.every(function(l){return (l.fade||0)<75;})]
+  ];
+  var passed=checks.filter(function(c){return c[1];}).length;
+  var warnings=[];
+  if(hasCons&&legs.every(function(l){return l.chalk;}))warnings.push('Three chalk bombs \u2014 all three are public-consensus plays. Fade at least one for value.');
+  if(legs.every(function(l){return l.odds>=850;}))warnings.push('Three longshots \u2014 too much variance. Swap one for a shorter-priced anchor.');
+  if(distinctArche<=1)warnings.push('Same archetype \u2014 all three share a '+arches[0]+' profile. Diversify swing types.');
+  if(legs.every(function(l){return l.env<0;}))warnings.push('Same bad environment \u2014 every leg is in a HR-suppressing park/weather spot.');
+  if(legs[0].gamePk===legs[1].gamePk&&legs[1].gamePk===legs[2].gamePk)warnings.push('All three legs are in the same game \u2014 correlated and lower-value.');
+  var dec=1;legs.forEach(function(l){var d=amToDecimal(l.odds);if(d&&d>1)dec*=d;});
+  return {legs:legs,checks:checks,passed:passed,green:passed>=7,warnings:warnings,parlayDecimal:dec,parlayAmerican:decToAmerican(dec),hasConsensus:hasCons};
+}
+function ulxAddAll(){var res=window.__ULX;if(!res||!res.legs)return;try{var arr=res.legs.map(function(l){return {gamePk:l.gamePk,name:l.name,mk:'hr'};});var b64=btoa(unescape(encodeURIComponent(JSON.stringify(arr))));addSgpLegs(b64);}catch(e){toast('Could not add',String((e&&e.message)||e),'\u26a0\ufe0f');}}
+function dlUlxRoleColor(role){return role==='Anchor'?'#39d98a':role==='Value Bat'?'#ffc34d':'#ff6b6b';}
+function dlUlxRoleIcon(role){return role==='Anchor'?'\u2693':role==='Value Bat'?'\ud83d\udcb0':'\u2622\ufe0f';}
+function dlRenderUlx(res){var box=document.getElementById('ulxResults');if(!box)return;if(res.error){box.innerHTML='<div class="research-status warn">'+esc(res.error)+'</div>';return;}window.__ULX=res;
+  var h='<div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0">';
+  res.legs.forEach(function(l){var col=dlUlxRoleColor(l.role);h+='<div style="flex:1;min-width:200px;border:1px solid '+col+'55;border-radius:12px;padding:12px;background:'+col+'11">'+
+    '<div style="font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:'+col+'">'+dlUlxRoleIcon(l.role)+' '+esc(l.role)+'</div>'+
+    '<div style="font-size:17px;font-weight:700;margin:3px 0">'+esc(l.name)+'</div>'+
+    '<div class="research-sub">'+esc(l.game)+(l.spot?(' \u00b7 bats #'+l.spot):'')+'</div>'+
+    '<div style="margin:6px 0;font-size:15px;font-weight:600">'+fmtAmerican(l.odds)+(l.fair?' (fair)':'')+'</div>'+
+    '<div class="research-sub">Model '+fmtPct(l.modelProb)+(l.edgeProb!=null?(' \u00b7 edge '+(l.edgeProb>=0?'+':'')+(l.edgeProb*100).toFixed(1)+'%'):'')+'</div>'+
+    '<div class="research-sub">'+esc(l.arche)+(l.powerClass?(' \u00b7 '+esc(l.powerClass)):'')+'</div>'+
+    '<div class="research-sub">Park/Wx '+(l.env>=0?'+':'')+l.env+'%'+(l.chalk?' \u00b7 \ud83d\udd25 public chalk':'')+'</div>'+
+  '</div>';});
+  h+='</div>';
+  h+='<div style="margin:6px 0;font-size:15px"><b>Parlay price:</b> '+fmtAmerican(res.parlayAmerican)+'</div>';
+  h+='<div style="display:flex;align-items:center;gap:10px;margin:8px 0;flex-wrap:wrap"><span style="font-weight:700;padding:4px 10px;border-radius:8px;background:'+(res.green?'#39d98a22':'#ffc34d22')+';color:'+(res.green?'#39d98a':'#ffc34d')+'">'+(res.green?'\u2705 GREEN LIGHT':'\u26a0\ufe0f '+res.passed+'/10')+'</span><span class="research-sub">'+res.passed+' of 10 ULX checks passed (7+ = green light)</span></div>';
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin:6px 0">'+res.checks.map(function(c){return '<div class="research-sub">'+(c[1]?'\u2705':'\u274c')+' '+esc(c[0])+'</div>';}).join('')+'</div>';
+  if(res.warnings.length){h+='<div class="research-status warn" style="margin-top:8px"><b>What we avoid:</b><ul style="margin:6px 0 0 16px">'+res.warnings.map(function(w){return '<li>'+esc(w)+'</li>';}).join('')+'</ul></div>';}
+  if(!res.hasConsensus){h+='<div class="research-sub" style="margin-top:6px">Tip: run the Public Consensus scan first to enable the \u201cfade the chalk\u201d / ownership checks.</div>';}
+  h+='<div style="margin-top:10px"><button id="btnUlxAdd">\u26a1 Add all 3 legs to slip</button></div>';
+  box.innerHTML=h;var ab=document.getElementById('btnUlxAdd');if(ab)ab.onclick=ulxAddAll;
+}
+function runUlxBuild(){var box=document.getElementById('ulxResults');if(box)box.innerHTML='<div class="research-status">Assembling your ULX parlay (Anchor \u2192 Value \u2192 Longshot)\u2026</div>';try{if((!window.DL_FEATURE_STORE||!window.DL_FEATURE_STORE.length)&&typeof dlBuildFeatureStore==='function'){dlBuildFeatureStore();}}catch(e){}dlRenderUlx(dlBuildUlxParlay());}
+function dlInjectUlxCard(){var panel=document.querySelector('[data-panel="builder"]');if(!panel||document.getElementById('ulxCard'))return;var card=document.createElement('div');card.id='ulxCard';card.className='dl-data-card';card.style.cssText='margin-bottom:14px;border:1px solid rgba(255,170,0,.35);background:rgba(255,170,0,.06)';card.innerHTML='<div class="dl-data-title">\ud83c\udfdf\ufe0f ULX HR Parlay Builder</div><div class="dl-data-sub">Builds with <b>roles, not names</b>: one \u2693 Anchor (highest confidence), one \ud83d\udcb0 Value Bat (underpriced), one \u2622\ufe0f Longshot (low-owned). Enforces diversification + the 7-check ULX green light, and fades the public chalk.</div><div style="margin-top:10px"><button id="btnUlxBuild">Build ULX HR parlay</button></div><div id="ulxResults"></div>';panel.insertBefore(card,panel.firstChild);var b=document.getElementById('btnUlxBuild');if(b)b.onclick=runUlxBuild;}
+var __ulxBaseRenderBuilder=renderBuilderPage;
+renderBuilderPage=function(){__ulxBaseRenderBuilder();try{dlInjectUlxCard();}catch(e){}};
 
 function autoSuggestCard(){
   if(GAMES.length<2){$('#builderResults').innerHTML='<div class="help-note">Load a slate first.</div>';return;}
