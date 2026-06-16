@@ -1340,8 +1340,8 @@ html{scroll-behavior:smooth;scrollbar-gutter:stable}body{overflow-y:auto;overscr
 <button class="mobile-slip-fab hidden" id="mobileSlipFab">🧾 Open slip</button>
 
 <script>
-const APP_VERSION = 'v4.25';
-const APP_UPDATED = 'Updated Jun 14, 2026 — ULX HR Parlay Builder: Anchor/Value/Longshot roles, 7-check green light, fade-the-chalk';
+const APP_VERSION = 'v4.27';
+const APP_UPDATED = 'Updated Jun 15, 2026 — ULX builder: generate multiple variations + per-leg reroll (swap Anchor/Value/Longshot)';
 {
   const av=document.getElementById('appVersion');
   if(av) av.textContent=APP_VERSION+' · '+APP_UPDATED;
@@ -2205,11 +2205,11 @@ function compareHrToModel(hr, dateStr){
   const inSlip=_inSlip(hr.hitter, hr.gamePk);
   const inTracked=_inTrackedSlips(hr.hitter, hr.hitterId, dateStr);
 
-  let label='Missed by model';
-  if(onBoard && inSlip) label='In slip';
-  else if(onBoard && top10 && plusEv) label='Strong model hit';
-  else if(onBoard) label='On board';
-  else label='Longshot HR';
+  let label='Not on model board';
+  if(onBoard && inSlip) label='In your slip'+(rank?(' · model #'+rank):'');
+  else if(onBoard && top10 && plusEv) label='Model called it (Top '+(rank||10)+')';
+  else if(onBoard) label='On model board #'+rank;
+  else label='Not on model board';
 
   return {
     onBoard, inSlip, inTracked, rank, top10, top25, plusEv,
@@ -2222,13 +2222,13 @@ function compareHrToModel(hr, dateStr){
 function liveHrBadgesHtml(m){
   if(!m) return '';
   let chips=[];
-  if(m.onBoard) chips.push('<span class="chip">On board</span>');
+  if(m.onBoard) chips.push('<span class="chip" title="This hitter was on your model’s ranked HR board for today">On model board'+(m.rank?(' #'+m.rank):'')+'</span>');
   if(m.top10) chips.push('<span class="chip" style="background:#22c55e22;color:#22c55e">Top 10</span>');
   else if(m.top25) chips.push('<span class="chip" style="background:#38bdf822;color:#38bdf8">Top 25</span>');
   if(m.inSlip) chips.push('<span class="chip" style="background:#f59e0b22;color:#f59e0b">In slip</span>');
   if(m.inTracked) chips.push('<span class="chip" style="background:#a855f722;color:#a855f7">Tracked</span>');
   if(m.plusEv) chips.push('<span class="chip" style="background:#10b98122;color:#10b981">+EV</span>');
-  if(!m.onBoard) chips.push('<span class="chip" style="background:#ef444422;color:#ef4444">Missed</span>');
+  if(!m.onBoard) chips.push('<span class="chip" style="background:#ef444422;color:#ef4444" title="Not on your model’s ranked board today">Off model board</span>');
   return chips.join(' ');
 }
 
@@ -2240,10 +2240,11 @@ function renderLiveHr(){
   const _boardWarn=(LIVE_HR_BOARD_AVAILABLE===false)
     ? '<div class="game-card open" style="padding:12px 14px;margin-bottom:10px;border-color:rgba(239,68,68,.4)"><b style="color:#ef4444">⚠️ No model board for '+esc(LIVE_HR_FEED_DATE||_liveHrDateStr())+'</b><div class="help-note" style="margin-top:4px">There is no ranked board for this date, so every HR below is labeled “off board / missed.” This is a comparison gap, not a model verdict. Load that day’s slate + odds (pre-game) to capture the board, then re-fetch.</div></div>'
     : '';
+  const _boardLegend='<details class="game-card open" style="padding:10px 14px;margin-bottom:10px"><summary style="cursor:pointer;font-weight:700">ℹ️ What does “on board” mean?</summary><div class="help-note" style="margin-top:6px">The <b>board</b> is your model’s ranked HR shortlist for the day — the picks generated from today’s slate on the <b>Games</b> / <b>Data</b> tab, captured before first pitch. When a real HR lands here, we check whether that hitter was on that ranked board:<br>• <b>On model board #N</b> — the model had this hitter ranked at #N.<br>• <b>Model called it (Top 10)</b> — ranked top-10 with positive EV.<br>• <b>In your slip</b> — this hitter was on your betslip.<br>• <b>Off model board</b> — the model did not rank this hitter today (a HR it didn’t flag).</div></details>';
   if(!LIVE_HR_EVENTS.length){
-    list.innerHTML=_boardWarn+'<div class="help-note">No HR events captured yet. Load slate → start polling.</div>';
+    list.innerHTML=_boardWarn+_boardLegend+'<div class="help-note">No HR events captured yet. Load slate → start polling.</div>';
   } else {
-    list.innerHTML=_boardWarn+LIVE_HR_EVENTS.slice(0,40).map(function(e){
+    list.innerHTML=_boardWarn+_boardLegend+LIVE_HR_EVENTS.slice(0,40).map(function(e){
       const m=e.model||null;
       const dist=(e.metrics&&e.metrics.distance!=null)?(Math.round(e.metrics.distance)+' ft'):null;
       const ev=(e.metrics&&e.metrics.exitVelo!=null)?(e.metrics.exitVelo.toFixed(1)+' mph'):null;
@@ -2279,10 +2280,10 @@ function renderLiveHr(){
   sum.innerHTML=''
     +'<div class="manual-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">'
     +  '<div class="game-card open" style="padding:14px 16px"><div class="section-title">HRs today</div><div style="font-size:26px;font-weight:800">'+total+'</div></div>'
-    +  '<div class="game-card open" style="padding:14px 16px"><div class="section-title">Board hits</div><div style="font-size:26px;font-weight:800">'+boardHits+'</div></div>'
+    +  '<div class="game-card open" style="padding:14px 16px"><div class="section-title">On model board</div><div style="font-size:26px;font-weight:800">'+boardHits+'</div></div>'
     +  '<div class="game-card open" style="padding:14px 16px"><div class="section-title">Top-10 hits</div><div style="font-size:26px;font-weight:800">'+top10Hits+'</div></div>'
     +  '<div class="game-card open" style="padding:14px 16px"><div class="section-title">Slip hits</div><div style="font-size:26px;font-weight:800">'+slipHits+'</div></div>'
-    +  '<div class="game-card open" style="padding:14px 16px"><div class="section-title">Misses</div><div style="font-size:26px;font-weight:800">'+misses+'</div></div>'
+    +  '<div class="game-card open" style="padding:14px 16px"><div class="section-title">Off board</div><div style="font-size:26px;font-weight:800">'+misses+'</div></div>'
     +'</div>';
 }
 
@@ -7489,23 +7490,27 @@ function dlUlxConsensusMap(){var s={};try{(window.__CONS_PLAYS||[]).slice(0,8).f
 function dlUlxArche(r){var pull=(r.pullAirProxy||0)>=0.27?'Pull':'Spray';var lift=(r.launchPathScore||0)>=65?'Lift':'Flat';return pull+'/'+lift;}
 function dlUlxEnvOk(r){return (r.parkWeatherBoost||0)>=0;}
 function dlUlxLeg(r,role,chalk){return {role:role,gamePk:r.gamePk,name:r.player,game:r.game,team:r.team,odds:dlUlxOdds(r),fair:(r.hrBookAmerican==null),modelProb:r.hrModelProb,edgeProb:r.hrEdgeProb,edgeLabel:r.hrEdgeLabel,spot:r.lineupSpot,arche:dlUlxArche(r),env:r.parkWeatherBoost||0,park:r.park,swing:r.swingPowerScore,powerClass:r.powerClass,fade:r.fadeRiskScore,pitcherWeak:r.pitcherWeaknessScore,chalk:!!chalk[String(r.player).toLowerCase()]};}
-function dlBuildUlxParlay(){
+function dlBuildUlxParlay(opts){
+  opts=opts||{};var rot=opts.rot||{Anchor:0,'Value Bat':0,Longshot:0};var pin=opts.pin||{};var altCounts={};
   var rows=(DL_FEATURE_STORE||[]).filter(function(r){return r.market==='hr'&&r.lineupStatus!=='out'&&r.hrModelProb!=null;});
   if(rows.length<3)return {error:'Need at least 3 HR-eligible bats. Fetch today\u2019s slate and build the Data feature store first.'};
   var chalk=dlUlxConsensusMap();var hasCons=Object.keys(chalk).length>0;
   function isChalk(r){return !!chalk[String(r.player).toLowerCase()];}
   var used=[];
+  function findByName(nm){var f=rows.filter(function(r){return String(r.player)===String(nm);});return f[0]||null;}
+  var pinned={};['Anchor','Value Bat','Longshot'].forEach(function(role){if(pin[role]){var p=findByName(pin[role]);if(p&&used.indexOf(p)<0){pinned[role]=p;used.push(p);}}});
   function divPen(r){var pen=0;used.forEach(function(u){if(u.gamePk===r.gamePk)pen+=6;if(dlUlxArche(u)===dlUlxArche(r))pen+=5;});return pen;}
-  function pick(bands,scoreFn){for(var bi=0;bi<bands.length;bi++){var lo=bands[bi][0],hi=bands[bi][1];var c=rows.filter(function(r){var o=dlUlxOdds(r);return o>=lo&&o<=hi&&used.indexOf(r)<0;});if(!c.length)continue;c.sort(function(a,b){return (scoreFn(b)-divPen(b))-(scoreFn(a)-divPen(a));});return c[0];}return null;}
-  var anchor=pick([[150,650],[120,800],[80,1200]],function(r){return (r.overSignal||0)+(r.edgeScore||0)*0.4+(r.hrModelProb||0)*120+((r.lineupSpot>=3&&r.lineupSpot<=5)?6:0);});if(anchor)used.push(anchor);
-  var value=pick([[450,1000],[400,1300],[300,1600]],function(r){return (r.hrEdgeProb||0)*400+(r.overSignal||0)*0.6+((r.lineupSpot>=6)?5:0)-(isChalk(r)?10:0);});if(value)used.push(value);
-  var longshot=pick([[850,2200],[700,2800],[600,4000]],function(r){return (r.swingPowerScore||0)*0.7+(r.hrModelProb||0)*120+((r.lineupSpot>=7)?6:0)+(dlUlxEnvOk(r)?5:0)-(isChalk(r)?12:0);});if(longshot)used.push(longshot);
+  function pick(role,bands,scoreFn){if(pinned[role]){return pinned[role];}for(var bi=0;bi<bands.length;bi++){var lo=bands[bi][0],hi=bands[bi][1];var c=rows.filter(function(r){var o=dlUlxOdds(r);return o>=lo&&o<=hi&&used.indexOf(r)<0;});if(!c.length)continue;c.sort(function(a,b){return (scoreFn(b)-divPen(b))-(scoreFn(a)-divPen(a));});altCounts[role]=c.length;var idx=((rot[role]||0)%c.length+c.length)%c.length;return c[idx];}return null;}
+  var anchor=pick('Anchor',[[150,650],[120,800],[80,1200]],function(r){return (r.overSignal||0)+(r.edgeScore||0)*0.4+(r.hrModelProb||0)*120+((r.lineupSpot>=3&&r.lineupSpot<=5)?6:0);});if(anchor)used.push(anchor);
+  var value=pick('Value Bat',[[450,1000],[400,1300],[300,1600]],function(r){return (r.hrEdgeProb||0)*400+(r.overSignal||0)*0.6+((r.lineupSpot>=6)?5:0)-(isChalk(r)?10:0);});if(value)used.push(value);
+  var longshot=pick('Longshot',[[850,2200],[700,2800],[600,4000]],function(r){return (r.swingPowerScore||0)*0.7+(r.hrModelProb||0)*120+((r.lineupSpot>=7)?6:0)+(dlUlxEnvOk(r)?5:0)-(isChalk(r)?12:0);});if(longshot)used.push(longshot);
   var rest=rows.filter(function(r){return used.indexOf(r)<0;}).sort(function(a,b){return (b.overSignal||0)-(a.overSignal||0);});
   if(!anchor){anchor=rest.shift();if(anchor)used.push(anchor);}
   if(!value){value=rest.shift();if(value)used.push(value);}
   if(!longshot){longshot=rest.shift();if(longshot)used.push(longshot);}
   if(!anchor||!value||!longshot)return {error:'Could not assemble three distinct legs from the current slate.'};
   var legs=[dlUlxLeg(anchor,'Anchor',chalk),dlUlxLeg(value,'Value Bat',chalk),dlUlxLeg(longshot,'Longshot',chalk)];
+  legs[0].alts=altCounts['Anchor'];legs[1].alts=altCounts['Value Bat'];legs[2].alts=altCounts['Longshot'];
   var spots=legs.map(function(l){return l.spot||0;});var arches=legs.map(function(l){return l.arche;});
   var distinctSpots=spots.filter(function(v,i){return v&&spots.indexOf(v)===i;}).length;
   var distinctArche=arches.filter(function(v,i){return arches.indexOf(v)===i;}).length;
@@ -7530,7 +7535,7 @@ function dlBuildUlxParlay(){
   if(legs.every(function(l){return l.env<0;}))warnings.push('Same bad environment \u2014 every leg is in a HR-suppressing park/weather spot.');
   if(legs[0].gamePk===legs[1].gamePk&&legs[1].gamePk===legs[2].gamePk)warnings.push('All three legs are in the same game \u2014 correlated and lower-value.');
   var dec=1;legs.forEach(function(l){var d=amToDecimal(l.odds);if(d&&d>1)dec*=d;});
-  return {legs:legs,checks:checks,passed:passed,green:passed>=7,warnings:warnings,parlayDecimal:dec,parlayAmerican:decToAmerican(dec),hasConsensus:hasCons};
+  return {legs:legs,checks:checks,passed:passed,green:passed>=7,warnings:warnings,parlayDecimal:dec,parlayAmerican:decToAmerican(dec),hasConsensus:hasCons,rot:rot};
 }
 function ulxAddAll(){var res=window.__ULX;if(!res||!res.legs)return;try{var arr=res.legs.map(function(l){return {gamePk:l.gamePk,name:l.name,mk:'hr'};});var b64=btoa(unescape(encodeURIComponent(JSON.stringify(arr))));addSgpLegs(b64);}catch(e){toast('Could not add',String((e&&e.message)||e),'\u26a0\ufe0f');}}
 function dlUlxRoleColor(role){return role==='Anchor'?'#39d98a':role==='Value Bat'?'#ffc34d':'#ff6b6b';}
@@ -7552,10 +7557,14 @@ function dlRenderUlx(res){var box=document.getElementById('ulxResults');if(!box)
   h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin:6px 0">'+res.checks.map(function(c){return '<div class="research-sub">'+(c[1]?'\u2705':'\u274c')+' '+esc(c[0])+'</div>';}).join('')+'</div>';
   if(res.warnings.length){h+='<div class="research-status warn" style="margin-top:8px"><b>What we avoid:</b><ul style="margin:6px 0 0 16px">'+res.warnings.map(function(w){return '<li>'+esc(w)+'</li>';}).join('')+'</ul></div>';}
   if(!res.hasConsensus){h+='<div class="research-sub" style="margin-top:6px">Tip: run the Public Consensus scan first to enable the \u201cfade the chalk\u201d / ownership checks.</div>';}
-  h+='<div style="margin-top:10px"><button id="btnUlxAdd">\u26a1 Add all 3 legs to slip</button></div>';
-  box.innerHTML=h;var ab=document.getElementById('btnUlxAdd');if(ab)ab.onclick=ulxAddAll;
+  h+='<div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08)"><div class="research-sub" style="margin-bottom:6px">🔄 Reroll a single leg (keeps the other two):</div><div style="display:flex;gap:6px;flex-wrap:wrap">'+res.legs.map(function(l,i){var col=dlUlxRoleColor(l.role);var n=l.alts;return '<button class="ulx-swap" data-i="'+i+'" style="font-size:12px;padding:5px 9px;border-color:'+col+'66;color:'+col+'">'+dlUlxRoleIcon(l.role)+' Swap '+esc(l.role)+((n&&n>1)?(' · '+n+' options'):'')+'</button>';}).join('')+'</div></div>';
+  h+='<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button id="btnUlxRegen">🎲 Generate another variation</button><button id="btnUlxAdd">⚡ Add all 3 legs to slip</button></div>';
+  box.innerHTML=h;var ab=document.getElementById('btnUlxAdd');if(ab)ab.onclick=ulxAddAll;var rb=document.getElementById('btnUlxRegen');if(rb)rb.onclick=ulxRegen;Array.prototype.forEach.call(box.querySelectorAll('.ulx-swap'),function(btn){btn.onclick=function(){ulxSwap(parseInt(btn.getAttribute('data-i'),10));};});
 }
-function runUlxBuild(){var box=document.getElementById('ulxResults');if(box)box.innerHTML='<div class="research-status">Assembling your ULX parlay (Anchor \u2192 Value \u2192 Longshot)\u2026</div>';try{if((!window.DL_FEATURE_STORE||!window.DL_FEATURE_STORE.length)&&typeof dlBuildFeatureStore==='function'){dlBuildFeatureStore();}}catch(e){}dlRenderUlx(dlBuildUlxParlay());}
+window.__ULX_STATE=window.__ULX_STATE||{rot:{Anchor:0,'Value Bat':0,Longshot:0}};
+function ulxRegen(){var st=window.__ULX_STATE;st.rot.Anchor=(st.rot.Anchor||0)+1;st.rot['Value Bat']=(st.rot['Value Bat']||0)+1;st.rot.Longshot=(st.rot.Longshot||0)+1;dlRenderUlx(dlBuildUlxParlay({rot:st.rot}));}
+function ulxSwap(i){var res=window.__ULX;if(!res||!res.legs||!res.legs[i])return;var role=res.legs[i].role;var st=window.__ULX_STATE;st.rot[role]=(st.rot[role]||0)+1;var pin={};res.legs.forEach(function(l){if(l.role!==role)pin[l.role]=l.name;});dlRenderUlx(dlBuildUlxParlay({rot:st.rot,pin:pin}));}
+function runUlxBuild(){var box=document.getElementById('ulxResults');if(box)box.innerHTML='<div class="research-status">Assembling your ULX parlay (Anchor → Value → Longshot)…</div>';try{if((!window.DL_FEATURE_STORE||!window.DL_FEATURE_STORE.length)&&typeof dlBuildFeatureStore==='function'){dlBuildFeatureStore();}}catch(e){}window.__ULX_STATE={rot:{Anchor:0,'Value Bat':0,Longshot:0}};dlRenderUlx(dlBuildUlxParlay({rot:window.__ULX_STATE.rot}));}
 function dlInjectUlxCard(){var panel=document.querySelector('[data-panel="builder"]');if(!panel||document.getElementById('ulxCard'))return;var card=document.createElement('div');card.id='ulxCard';card.className='dl-data-card';card.style.cssText='margin-bottom:14px;border:1px solid rgba(255,170,0,.35);background:rgba(255,170,0,.06)';card.innerHTML='<div class="dl-data-title">\ud83c\udfdf\ufe0f ULX HR Parlay Builder</div><div class="dl-data-sub">Builds with <b>roles, not names</b>: one \u2693 Anchor (highest confidence), one \ud83d\udcb0 Value Bat (underpriced), one \u2622\ufe0f Longshot (low-owned). Enforces diversification + the 7-check ULX green light, and fades the public chalk.</div><div style="margin-top:10px"><button id="btnUlxBuild">Build ULX HR parlay</button></div><div id="ulxResults"></div>';panel.insertBefore(card,panel.firstChild);var b=document.getElementById('btnUlxBuild');if(b)b.onclick=runUlxBuild;}
 var __ulxBaseRenderBuilder=renderBuilderPage;
 renderBuilderPage=function(){__ulxBaseRenderBuilder();try{dlInjectUlxCard();}catch(e){}};
