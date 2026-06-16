@@ -1175,6 +1175,80 @@ def _tw_search_structured(tw, query, limit=40):
     return best, best_diag
 
 
+def _yt_video_id(url):
+    if not url:
+        return None
+    url = url.strip()
+    m = re.search(r"(?:v=|/shorts/|youtu\.be/|/embed/|/live/)([A-Za-z0-9_-]{11})", url)
+    if m:
+        return m.group(1)
+    if re.match(r"^[A-Za-z0-9_-]{11}$", url):
+        return url
+    return None
+
+
+def _yt_strip_xml(xml):
+    import html as _htmlmod
+    parts = re.findall(r"<text[^>]*>(.*?)</text>", xml or "", re.S)
+    out = []
+    for p in parts:
+        p = re.sub(r"<[^>]+>", "", p)
+        out.append(_htmlmod.unescape(p).strip())
+    return " ".join([x for x in out if x])
+
+
+def _yt_fetch_transcript(vid):
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+        try:
+            tr = YouTubeTranscriptApi.get_transcript(vid, languages=["en", "en-US", "en-GB"])
+        except Exception:
+            tr = YouTubeTranscriptApi.get_transcript(vid)
+        txt = " ".join([(x.get("text") or "").strip() for x in tr])
+        if txt.strip():
+            return txt, "youtube-transcript-api"
+    except Exception:
+        pass
+    hdr = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36", "Accept-Language": "en-US,en;q=0.9"}
+    try:
+        r = requests.get("https://www.youtube.com/watch?v=" + vid, headers=hdr, timeout=20)
+        page = r.text or ""
+        m = re.search(r'"captionTracks":(\[.*?\])', page)
+        if not m:
+            return None, "no-captions-on-page"
+        tracks = json.loads(m.group(1))
+        if not tracks:
+            return None, "no-caption-tracks"
+        base = None
+        for t in tracks:
+            if (t.get("languageCode") or "").lower().startswith("en"):
+                base = t.get("baseUrl")
+                break
+        if not base:
+            base = tracks[0].get("baseUrl")
+        if not base:
+            return None, "no-base-url"
+        rx = requests.get(base, headers=hdr, timeout=20)
+        txt = _yt_strip_xml(rx.text or "")
+        return (txt, "caption-track") if txt.strip() else (None, "empty-track")
+    except Exception as e:
+        return None, "fetch-error: " + str(e)[:160]
+
+
+@app.post("/api/research/youtube/transcript")
+def api_yt_transcript():
+    body = request.get_json(silent=True) or {}
+    url = (body.get("url") or "").strip()
+    vid = _yt_video_id(url)
+    if not vid:
+        return jsonify({"ok": False, "error": "Could not read a YouTube video ID from that link. Paste a full youtube.com/watch?v=... or youtu.be/... URL."}), 400
+    txt, src = _yt_fetch_transcript(vid)
+    if not txt:
+        note = "Couldn't fetch a transcript (" + str(src) + "). The video may have captions off, or YouTube is blocking this server. Use 'Paste transcript instead': open the video on YouTube, click ...more then Show transcript, copy it, and paste it in."
+        return jsonify({"ok": False, "videoId": vid, "error": note, "source": src}), 502
+    return jsonify({"ok": True, "videoId": vid, "transcript": txt, "chars": len(txt), "source": src})
+
+
 @app.post("/api/research/twitter/consensus")
 def api_tw_consensus():
     tw = _tool_path("twitter")
