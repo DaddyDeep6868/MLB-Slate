@@ -1340,8 +1340,8 @@ html{scroll-behavior:smooth;scrollbar-gutter:stable}body{overflow-y:auto;overscr
 <button class="mobile-slip-fab hidden" id="mobileSlipFab">🧾 Open slip</button>
 
 <script>
-const APP_VERSION = 'v4.27';
-const APP_UPDATED = 'Updated Jun 15, 2026 — ULX builder: generate multiple variations + per-leg reroll (swap Anchor/Value/Longshot)';
+const APP_VERSION = 'v4.28';
+const APP_UPDATED = 'Updated Jun 15, 2026 — ULX builder: soft-band ranking removes the thin-slate limit — Swap/Generate always find another option (stretch picks flagged)';
 {
   const av=document.getElementById('appVersion');
   if(av) av.textContent=APP_VERSION+' · '+APP_UPDATED;
@@ -4885,7 +4885,7 @@ function v22BadgeHtml(c){
 function v22PlayerCard(c,idx){
   const profile=v30EdgeProfile(c); const p=profile.p||{}; const alert=profile.edgeScore>=88||profile.due.score>=80; const elite=profile.edgeScore>=78; const spot=(p._lineupStatus==='in'?'#'+(p._lineupSpot||p.spot||''):(p._projectedSpot||p.spot?('Proj #'+(p._projectedSpot||p.spot)):'Proj'));
   const width=Math.max(7,Math.min(100,profile.edgeScore));
-  return '<div class="v22-player-card '+(alert?'alert ':elite?'elite ':'')+'" onclick="v2OpenPlayer(\''+String(profile.g&&profile.g.id).replace(/'/g,'')+'\',\''+encodeURIComponent(p.name)+'\')"><div class="v22-p-top"><div><div class="v22-p-name">'+esc(p.name)+' <span class="v2-pill">'+spot+'</span></div>'+v30BadgeRow(profile)+'</div><div class="v22-p-score">'+profile.edgeScore+'<small>Edge</small></div></div>'+v30DueHtml(profile,true)+'<div class="v22-meter"><span style="width:'+width+'%"></span></div><div class="v22-p-stats"><div class="v22-p-stat">Model<b>'+fmtPct(profile.prob)+'</b></div><div class="v22-p-stat">Best<b>'+(profile.american!=null?fmtAmerican(profile.american):'—')+'</b></div><div class="v22-p-stat">EV<b class="'+((profile.ev||0)>=0?'ev-pos':'ev-neg')+'">'+((profile.ev||0)>=0?'+':'')+((profile.ev||0)*100).toFixed(0)+'%</b></div><div class="v22-p-stat">Action<b>'+esc(profile.action)+'</b></div></div><div class="v22-side-actions"><span class="v22-icon-btn">⚾</span><span class="v22-icon-btn">📋</span><span class="v22-icon-btn">📊</span><span class="v22-icon-btn">＋</span></div></div>';
+  return '<div class="v22-player-card '+(alert?'alert ':elite?'elite ':'')+'" onclick="v2OpenPlayer(\''+String(profile.g&&profile.g.id).replace(/'/g,'')+'\',\''+encodeURIComponent(p.name)+'\')"><div class="v22-p-top"><div><div class="v22-p-name">'+esc(p.name)+' <span class="v2-pill">'+spot+'</span></div>'+v30BadgeRow(profile)+'</div><div class="v22-p-score">'+profile.edgeScore+'<small>Edge</small></div></div>'+v30DueHtml(profile,true)+'<div class="v22-meter"><span style="width:'+width+'%"></span></div><div class="v22-p-stats"><div class="v22-p-stat">Model<b>'+fmtPct(profile.prob)+'</b></div><div class="v22-p-stat">Best<b>'+(profile.american!=null?fmtAmerican(profile.american):'—')+'</b></div><div class="v22-p-stat">EV<b class="'+((profile.ev||0)>=0?'ev-pos':'ev-neg')+'">'+((profile.ev||0)>=0?'+':'')+((profile.ev||0)*100).toFixed(0)+'%</b></div><div class="v22-p-stat">Action<b>'+esc(profile.action)+'</b></div></div><div class="v22-side-actions"><span class="v22-icon-btn">⚾</span><span class="v22-icon-btn">📋</span><span class="v22-icon-btn">��</span><span class="v22-icon-btn">＋</span></div></div>';
 }
 function v22TeamColumn(g,side,cands){
   const isHome=side==='home'; const title=isHome?g.home:g.away; const abbr=isHome?(g.homeAbbr||g.home):(g.awayAbbr||g.away); const pit=isHome?g.awayPitcher:g.homePitcher;
@@ -7491,7 +7491,7 @@ function dlUlxArche(r){var pull=(r.pullAirProxy||0)>=0.27?'Pull':'Spray';var lif
 function dlUlxEnvOk(r){return (r.parkWeatherBoost||0)>=0;}
 function dlUlxLeg(r,role,chalk){return {role:role,gamePk:r.gamePk,name:r.player,game:r.game,team:r.team,odds:dlUlxOdds(r),fair:(r.hrBookAmerican==null),modelProb:r.hrModelProb,edgeProb:r.hrEdgeProb,edgeLabel:r.hrEdgeLabel,spot:r.lineupSpot,arche:dlUlxArche(r),env:r.parkWeatherBoost||0,park:r.park,swing:r.swingPowerScore,powerClass:r.powerClass,fade:r.fadeRiskScore,pitcherWeak:r.pitcherWeaknessScore,chalk:!!chalk[String(r.player).toLowerCase()]};}
 function dlBuildUlxParlay(opts){
-  opts=opts||{};var rot=opts.rot||{Anchor:0,'Value Bat':0,Longshot:0};var pin=opts.pin||{};var altCounts={};
+  opts=opts||{};var rot=opts.rot||{Anchor:0,'Value Bat':0,Longshot:0};var pin=opts.pin||{};var altCounts={};var altStretch={};var pickTier={};
   var rows=(DL_FEATURE_STORE||[]).filter(function(r){return r.market==='hr'&&r.lineupStatus!=='out'&&r.hrModelProb!=null;});
   if(rows.length<3)return {error:'Need at least 3 HR-eligible bats. Fetch today\u2019s slate and build the Data feature store first.'};
   var chalk=dlUlxConsensusMap();var hasCons=Object.keys(chalk).length>0;
@@ -7500,7 +7500,7 @@ function dlBuildUlxParlay(opts){
   function findByName(nm){var f=rows.filter(function(r){return String(r.player)===String(nm);});return f[0]||null;}
   var pinned={};['Anchor','Value Bat','Longshot'].forEach(function(role){if(pin[role]){var p=findByName(pin[role]);if(p&&used.indexOf(p)<0){pinned[role]=p;used.push(p);}}});
   function divPen(r){var pen=0;used.forEach(function(u){if(u.gamePk===r.gamePk)pen+=6;if(dlUlxArche(u)===dlUlxArche(r))pen+=5;});return pen;}
-  function pick(role,bands,scoreFn){if(pinned[role]){return pinned[role];}for(var bi=0;bi<bands.length;bi++){var lo=bands[bi][0],hi=bands[bi][1];var c=rows.filter(function(r){var o=dlUlxOdds(r);return o>=lo&&o<=hi&&used.indexOf(r)<0;});if(!c.length)continue;c.sort(function(a,b){return (scoreFn(b)-divPen(b))-(scoreFn(a)-divPen(a));});altCounts[role]=c.length;var idx=((rot[role]||0)%c.length+c.length)%c.length;return c[idx];}return null;}
+  function pick(role,bands,scoreFn){var ideal=bands[0],wide=bands[bands.length-1];function tierOf(o){if(o>=ideal[0]&&o<=ideal[1])return 0;if(o>=wide[0]&&o<=wide[1])return 1;return 2;}if(pinned[role]){pickTier[role]=tierOf(dlUlxOdds(pinned[role]));return pinned[role];}function dist(o){if(o<wide[0])return wide[0]-o;if(o>wide[1])return o-wide[1];return 0;}var pool=rows.filter(function(r){return used.indexOf(r)<0;});if(!pool.length)return null;pool.sort(function(a,b){var oa=dlUlxOdds(a),ob=dlUlxOdds(b);var ta=tierOf(oa),tb=tierOf(ob);if(ta!==tb)return ta-tb;if(ta===2){var da=dist(oa),db=dist(ob);if(da!==db)return da-db;}return (scoreFn(b)-divPen(b))-(scoreFn(a)-divPen(a));});var clean=0;for(var ci=0;ci<pool.length;ci++){if(tierOf(dlUlxOdds(pool[ci]))<=1)clean++;}altCounts[role]=clean;altStretch[role]=pool.length-clean;var idx=((rot[role]||0)%pool.length+pool.length)%pool.length;var chosen=pool[idx];used.push(chosen);pickTier[role]=tierOf(dlUlxOdds(chosen));return chosen;}
   var anchor=pick('Anchor',[[150,650],[120,800],[80,1200]],function(r){return (r.overSignal||0)+(r.edgeScore||0)*0.4+(r.hrModelProb||0)*120+((r.lineupSpot>=3&&r.lineupSpot<=5)?6:0);});if(anchor)used.push(anchor);
   var value=pick('Value Bat',[[450,1000],[400,1300],[300,1600]],function(r){return (r.hrEdgeProb||0)*400+(r.overSignal||0)*0.6+((r.lineupSpot>=6)?5:0)-(isChalk(r)?10:0);});if(value)used.push(value);
   var longshot=pick('Longshot',[[850,2200],[700,2800],[600,4000]],function(r){return (r.swingPowerScore||0)*0.7+(r.hrModelProb||0)*120+((r.lineupSpot>=7)?6:0)+(dlUlxEnvOk(r)?5:0)-(isChalk(r)?12:0);});if(longshot)used.push(longshot);
@@ -7510,7 +7510,7 @@ function dlBuildUlxParlay(opts){
   if(!longshot){longshot=rest.shift();if(longshot)used.push(longshot);}
   if(!anchor||!value||!longshot)return {error:'Could not assemble three distinct legs from the current slate.'};
   var legs=[dlUlxLeg(anchor,'Anchor',chalk),dlUlxLeg(value,'Value Bat',chalk),dlUlxLeg(longshot,'Longshot',chalk)];
-  legs[0].alts=altCounts['Anchor'];legs[1].alts=altCounts['Value Bat'];legs[2].alts=altCounts['Longshot'];
+  ['Anchor','Value Bat','Longshot'].forEach(function(role,i){legs[i].alts=altCounts[role]||0;legs[i].altStretch=altStretch[role]||0;legs[i].stretch=(pickTier[role]===2);legs[i].soft=(pickTier[role]===1);});
   var spots=legs.map(function(l){return l.spot||0;});var arches=legs.map(function(l){return l.arche;});
   var distinctSpots=spots.filter(function(v,i){return v&&spots.indexOf(v)===i;}).length;
   var distinctArche=arches.filter(function(v,i){return arches.indexOf(v)===i;}).length;
@@ -7546,7 +7546,7 @@ function dlRenderUlx(res){var box=document.getElementById('ulxResults');if(!box)
     '<div style="font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:'+col+'">'+dlUlxRoleIcon(l.role)+' '+esc(l.role)+'</div>'+
     '<div style="font-size:17px;font-weight:700;margin:3px 0">'+esc(l.name)+'</div>'+
     '<div class="research-sub">'+esc(l.game)+(l.spot?(' \u00b7 bats #'+l.spot):'')+'</div>'+
-    '<div style="margin:6px 0;font-size:15px;font-weight:600">'+fmtAmerican(l.odds)+(l.fair?' (fair)':'')+'</div>'+
+    '<div style="margin:6px 0;font-size:15px;font-weight:600">'+fmtAmerican(l.odds)+(l.fair?' (fair)':'')+(l.stretch?' · ⚠️ outside ideal band':(l.soft?' · ~ relaxed band':''))+'</div>'+
     '<div class="research-sub">Model '+fmtPct(l.modelProb)+(l.edgeProb!=null?(' \u00b7 edge '+(l.edgeProb>=0?'+':'')+(l.edgeProb*100).toFixed(1)+'%'):'')+'</div>'+
     '<div class="research-sub">'+esc(l.arche)+(l.powerClass?(' \u00b7 '+esc(l.powerClass)):'')+'</div>'+
     '<div class="research-sub">Park/Wx '+(l.env>=0?'+':'')+l.env+'%'+(l.chalk?' \u00b7 \ud83d\udd25 public chalk':'')+'</div>'+
@@ -7557,7 +7557,7 @@ function dlRenderUlx(res){var box=document.getElementById('ulxResults');if(!box)
   h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin:6px 0">'+res.checks.map(function(c){return '<div class="research-sub">'+(c[1]?'\u2705':'\u274c')+' '+esc(c[0])+'</div>';}).join('')+'</div>';
   if(res.warnings.length){h+='<div class="research-status warn" style="margin-top:8px"><b>What we avoid:</b><ul style="margin:6px 0 0 16px">'+res.warnings.map(function(w){return '<li>'+esc(w)+'</li>';}).join('')+'</ul></div>';}
   if(!res.hasConsensus){h+='<div class="research-sub" style="margin-top:6px">Tip: run the Public Consensus scan first to enable the \u201cfade the chalk\u201d / ownership checks.</div>';}
-  h+='<div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08)"><div class="research-sub" style="margin-bottom:6px">🔄 Reroll a single leg (keeps the other two):</div><div style="display:flex;gap:6px;flex-wrap:wrap">'+res.legs.map(function(l,i){var col=dlUlxRoleColor(l.role);var n=l.alts;return '<button class="ulx-swap" data-i="'+i+'" style="font-size:12px;padding:5px 9px;border-color:'+col+'66;color:'+col+'">'+dlUlxRoleIcon(l.role)+' Swap '+esc(l.role)+((n&&n>1)?(' · '+n+' options'):'')+'</button>';}).join('')+'</div></div>';
+  h+='<div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08)"><div class="research-sub" style="margin-bottom:6px">🔄 Reroll a single leg — always finds an alternative (relaxes the odds band if the slate is thin):</div><div style="display:flex;gap:6px;flex-wrap:wrap">'+res.legs.map(function(l,i){var col=dlUlxRoleColor(l.role);var n=(l.alts||0)+(l.altStretch||0);return '<button class="ulx-swap" data-i="'+i+'" title="'+((l.alts||0)+' in ideal band, '+(l.altStretch||0)+' stretch picks')+'" style="font-size:12px;padding:5px 9px;border-color:'+col+'66;color:'+col+'">'+dlUlxRoleIcon(l.role)+' Swap '+esc(l.role)+((n&&n>1)?(' · '+n+' options'):'')+'</button>';}).join('')+'</div></div>';
   h+='<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button id="btnUlxRegen">🎲 Generate another variation</button><button id="btnUlxAdd">⚡ Add all 3 legs to slip</button></div>';
   box.innerHTML=h;var ab=document.getElementById('btnUlxAdd');if(ab)ab.onclick=ulxAddAll;var rb=document.getElementById('btnUlxRegen');if(rb)rb.onclick=ulxRegen;Array.prototype.forEach.call(box.querySelectorAll('.ulx-swap'),function(btn){btn.onclick=function(){ulxSwap(parseInt(btn.getAttribute('data-i'),10));};});
 }
