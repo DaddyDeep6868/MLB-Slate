@@ -1340,8 +1340,8 @@ html{scroll-behavior:smooth;scrollbar-gutter:stable}body{overflow-y:auto;overscr
 <button class="mobile-slip-fab hidden" id="mobileSlipFab">🧾 Open slip</button>
 
 <script>
-const APP_VERSION = 'v4.32';
-const APP_UPDATED = 'Updated Jun 16, 2026 — YouTube parlay fix: transcripts now fetched via the YouTube InnerTube API so server and cloud builds can read captions (fixes the false no-captions error); paste-transcript fallback still available.';
+const APP_VERSION = 'v4.33';
+const APP_UPDATED = 'Updated Jun 16, 2026 — YouTube parlay now uses the Supadata transcript API (primary) with InnerTube and page-scrape fallbacks, so server and cloud builds reliably read captions; paste-transcript fallback still available.';
 {
   const av=document.getElementById('appVersion');
   if(av) av.textContent=APP_VERSION+' · '+APP_UPDATED;

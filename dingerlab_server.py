@@ -1268,7 +1268,85 @@ def _yt_track_text(base):
         return ""
 
 
+SUPADATA_DEFAULT_KEY = "sd_d2fee0fd0d95166fb4dc5a3c6ae46fc0"
+
+
+def _supadata_key():
+    return (os.environ.get("SUPADATA_API_KEY") or SUPADATA_DEFAULT_KEY or "").strip()
+
+
+def _supadata_extract_text(j):
+    if not isinstance(j, dict):
+        return ""
+    c = j.get("content")
+    if isinstance(c, list):
+        txt = " ".join([(seg.get("text") or "") for seg in c if isinstance(seg, dict)])
+    elif isinstance(c, str):
+        txt = c
+    else:
+        txt = j.get("transcript") or j.get("text") or ""
+        if not isinstance(txt, str):
+            txt = ""
+    return re.sub(r"\s+", " ", txt).strip()
+
+
+def _supadata_poll(job):
+    key = _supadata_key()
+    for _ in range(25):
+        try:
+            r = requests.get("https://api.supadata.ai/v1/transcript/" + str(job),
+                             headers={"x-api-key": key}, timeout=20)
+            j = r.json()
+            st = (j.get("status") or "").lower()
+            txt = _supadata_extract_text(j)
+            if txt:
+                return txt, "supadata"
+            if st in ("failed", "error"):
+                return None, "supadata-failed"
+        except Exception:
+            pass
+        time.sleep(2)
+    return None, "supadata-timeout"
+
+
+def _yt_supadata_transcript(vid):
+    key = _supadata_key()
+    if not key:
+        return None, "no-supadata-key"
+    url = "https://www.youtube.com/watch?v=" + vid
+    try:
+        r = requests.get("https://api.supadata.ai/v1/youtube/transcript",
+                         params={"url": url, "text": "true", "lang": "en"},
+                         headers={"x-api-key": key}, timeout=45)
+        try:
+            j = r.json()
+        except Exception:
+            j = {}
+        if r.status_code == 200:
+            txt = _supadata_extract_text(j)
+            if txt:
+                return txt, "supadata"
+            job = j.get("jobId") or j.get("id")
+            if job:
+                return _supadata_poll(job)
+            return None, "supadata-empty"
+        if r.status_code in (201, 202):
+            job = j.get("jobId") or j.get("id")
+            if job:
+                return _supadata_poll(job)
+        return None, "supadata-http-" + str(r.status_code)
+    except Exception as e:
+        return None, "supadata-error: " + str(e)[:120]
+
+
 def _yt_fetch_transcript(vid):
+    # 0) Supadata API \u2014 hosted transcript service, most reliable from servers
+    try:
+        txt, src = _yt_supadata_transcript(vid)
+        if txt and txt.strip():
+            return txt, src
+    except Exception:
+        pass
     # 1) youtube-transcript-api if it is installed
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
