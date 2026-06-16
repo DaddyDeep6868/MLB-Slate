@@ -1340,8 +1340,8 @@ html{scroll-behavior:smooth;scrollbar-gutter:stable}body{overflow-y:auto;overscr
 <button class="mobile-slip-fab hidden" id="mobileSlipFab">🧾 Open slip</button>
 
 <script>
-const APP_VERSION = 'v4.39';
-const APP_UPDATED = 'Updated Jun 16, 2026 \u2014 v4.39: one-click Auto-grade on the Bet Ledger \u2014 settles pending HR / hits / TB / RBI / parlay bets straight from final MLB box scores.';
+const APP_VERSION = 'v4.41';
+const APP_UPDATED = 'Updated Jun 16, 2026 \u2014 v4.41: HR Projection Board on the Games tab \u2014 ranks every hitter on the loaded slate by the model\u2019s real home-run probability, with best price, implied odds, edge vs. the book and matchup, plus one-tap Track to the Bet Ledger.';
 {
   const av=document.getElementById('appVersion');
   if(av) av.textContent=APP_VERSION+' · '+APP_UPDATED;
@@ -7583,7 +7583,83 @@ function dlLedgerRender(){var box=document.getElementById('dlLedgerBody');if(!bo
 function dlLedgerAutoGrade(){var all=dlLedgerLoad();var pending=all.filter(function(b){return (b.result||'pending')==='pending';});if(!pending.length){toast('Nothing to grade','No pending bets in your ledger.','\u2139\ufe0f');return;}if(typeof serverModeEnabled!=='function'||!serverModeEnabled()){toast('Server needed','Auto-grade pulls real MLB box scores from the DingerLab server. Open the server-hosted (Flask) version to use it \u2014 or grade manually with W / L / P.','\u2139\ufe0f');return;}var supported=['hr','hits','hits2','tb','rbi'];var gradeable=pending.filter(function(b){return b.dateStr&&((b.market==='parlay'&&b.legs&&b.legs.length)||supported.indexOf(b.market)>=0);});if(!gradeable.length){toast('Nothing to auto-grade','Pending bets need a date and a supported market (HR / hits / TB / RBI / parlay). Grade others manually with W / L / P.','\u2139\ufe0f');return;}toast('Auto-grading\u2026','Checking final box scores for '+gradeable.length+' pending bet(s).','\u26a1');fetch('/api/grade_ledger',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bets:gradeable})}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(j){if(!j||!j.ok)throw new Error((j&&j.error)||'grade failed');var settled=0;(j.results||[]).forEach(function(res){if(res.result==='win'||res.result==='loss'){dlLedgerUpdate(res.id,{result:res.result,gradedAt:Date.now(),gradeSource:'mlb_boxscore'});settled++;}});dlLedgerRender();var waiting=(j.waiting||0);toast('Auto-grade complete','Settled '+settled+' bet(s) from real MLB results.'+(waiting?(' '+waiting+' still pending \u2014 game not final or player not matched.'):''),'\u2705');}).catch(function(e){toast('Auto-grade failed',String((e&&e.message)||e)+'. Server may be asleep \u2014 try again or grade manually.','\u26a0\ufe0f');});}
 function dlInjectLedgerCard(){var panel=document.querySelector('[data-panel="track"]');if(!panel||document.getElementById('dlLedgerCard'))return;var card=document.createElement('div');card.id='dlLedgerCard';card.className='dl-data-card';card.style.cssText='margin-bottom:14px;border:1px solid rgba(57,217,138,.35);background:rgba(57,217,138,.06)';card.innerHTML='<div class="dl-data-title">\ud83d\udcb0 Bet Ledger \u2014 CLV / ROI</div><div class="dl-data-sub">Log the odds &amp; stake you actually took. Tracks net units, ROI, win rate, and <b>Closing Line Value</b> \u2014 did you beat the close? Mark each bet W / L / P to settle it.</div><div id="dlLedgerBody" style="margin-top:10px"></div>';panel.insertBefore(card,panel.firstChild);dlLedgerRender();}
 var __dlBaseRenderTracking=(typeof renderTracking==='function')?renderTracking:null;
-renderTracking=function(){if(__dlBaseRenderTracking)__dlBaseRenderTracking.apply(this,arguments);try{dlInjectLedgerCard();}catch(e){}};
+renderTracking=function(){if(__dlBaseRenderTracking)__dlBaseRenderTracking.apply(this,arguments);try{dlInjectLedgerCard();}catch(e){}try{dlInjectSharpCard();}catch(e){}};
+/* ===== v4.40 Sharp Mode: verify-then-bet ===== */
+function dlSharpTierOf(p){return p>=0.115?'Great':(p>=0.07?'Good':'Low');}
+function dlSharpTrust(){
+  var sc=null;try{sc=scorecardStats(loadModelExports());}catch(e){}
+  var cal=(sc&&sc.expAll>0)?(sc.actualAll/sc.expAll):null;
+  var settled=0;try{(loadSaved()||[]).forEach(function(x){if(x&&(x.result==='win'||x.result==='loss'))settled++;});}catch(e){}
+  var days=sc?sc.days:0;
+  var verdict,color,detail;
+  if((days||0)<3 && settled<8){
+    verdict='NOT ENOUGH DATA';color='#9fb0c3';
+    detail='Auto-grade more results before trusting the model. Until then bet tiny (or paper-bet). Going 0-for-52 with zero calibration history is exactly why this gate exists.';
+  } else if(cal==null){
+    verdict='NO BOARD HISTORY';color='#9fb0c3';
+    detail='Save a few Live HR board exports so calibration can be measured over time.';
+  } else if(cal>=0.85 && cal<=1.20){
+    verdict='TRUSTWORTHY';color='#39d98a';
+    detail='Predicted HR rate \u2248 actual ('+sc.actualAll+' actual vs '+sc.expAll.toFixed(1)+' expected over '+days+' day'+(days===1?'':'s')+'). The edges below are real \u2014 bet them with Kelly sizing.';
+  } else if(cal<0.85){
+    verdict='OVERCONFIDENT';color='#ff6b6b';
+    detail='The model predicts MORE home runs than actually happen ('+sc.actualAll+' actual vs '+sc.expAll.toFixed(1)+' expected). This is the 0-for-52 pattern. Stakes are auto-shrunk to '+cal.toFixed(2)+'\u00d7 and the edge bar is raised until it recalibrates.';
+  } else {
+    verdict='UNDERCONFIDENT';color='#ffc34d';
+    detail='The model is too cautious ('+sc.actualAll+' actual vs '+sc.expAll.toFixed(1)+' expected). Listed edges are likely conservative.';
+  }
+  return {cal:cal,verdict:verdict,color:color,detail:detail,days:days,settled:settled};
+}
+function dlSharpBestBets(maxN){
+  maxN=maxN||6;
+  try{if((typeof DL_FEATURE_STORE==='undefined'||!DL_FEATURE_STORE||!DL_FEATURE_STORE.length)&&typeof dlBuildFeatureStore==='function')dlBuildFeatureStore();}catch(e){}
+  try{if(typeof readStakeCfg==='function')readStakeCfg();}catch(e){}
+  var rows=(typeof DL_FEATURE_STORE!=='undefined'&&DL_FEATURE_STORE)?DL_FEATURE_STORE:[];
+  var trust=dlSharpTrust();
+  var calShrink=(trust.cal!=null&&trust.cal<1)?trust.cal:1;
+  var minEdge=(trust.verdict==='OVERCONFIDENT')?0.03:0.0;
+  var out=[];
+  rows.forEach(function(r){
+    if(!r||r.market!=='hr'||!r.player)return;
+    if(r.lineupStatus==='out')return;
+    var book=(r.hrBookAmerican!=null?r.hrBookAmerican:(r.bestAmerican!=null?r.bestAmerican:null));
+    if(book==null)return;
+    var dec=amToDecimal(Number(book));if(!dec)return;
+    var p=(r.hrModelProb!=null?r.hrModelProb:r.modelProb);if(p==null)return;
+    var tier=dlSharpTierOf(p);
+    var calP=Math.min(0.999,(typeof calibratedJoint==='function'?calibratedJoint(p,tier):p)*calShrink);
+    var imp=1/dec;
+    var edge=calP-imp;
+    if(edge<=minEdge)return;
+    var ev=calP*dec-1;
+    var sug=(typeof suggestStake==='function')?suggestStake(calP,dec):{f:0,stake:0};
+    out.push({player:r.player,game:r.game,gamePk:r.gamePk,book:book,dec:dec,model:p,calModel:calP,edge:edge,ev:ev,stake:sug.stake,kf:sug.f,tier:tier});
+  });
+  out.sort(function(a,b){return b.edge-a.edge;});
+  return out.slice(0,maxN);
+}
+function dlSharpTrackBet(b){if(!b)return;try{dlLedgerAdd({player:b.player,market:'hr',role:'',oddsTaken:(b.book!=null?Number(b.book):null),stake:(Number((b.stake||1).toFixed(2))||1),closeOdds:null,result:'pending',dateStr:(typeof localDateStr==='function'?localDateStr(new Date()):new Date().toLocaleDateString())});if(typeof dlLedgerRender==='function')dlLedgerRender();}catch(e){}}
+function dlSharpRender(){
+  var body=document.getElementById('dlSharpBody');if(!body)return;
+  var t=dlSharpTrust();
+  var bets=dlSharpBestBets(6);
+  var trustHtml='<div style="border:1px solid '+t.color+'55;background:'+t.color+'12;border-radius:10px;padding:10px 12px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;opacity:.75">Step 1 \u00b7 Verify the model</div><div style="font-size:18px;font-weight:800;color:'+t.color+'">Model trust: '+t.verdict+(t.cal!=null?(' \u00b7 '+t.cal.toFixed(2)+'\u00d7'):'')+'</div><div class="research-sub" style="margin-top:3px">'+t.detail+'</div></div>';
+  var betsHtml;
+  if(!bets.length){
+    var hasSlate=(typeof DL_FEATURE_STORE!=='undefined'&&DL_FEATURE_STORE&&DL_FEATURE_STORE.length);
+    betsHtml='<div class="research-status warn" style="margin-top:10px">'+(hasSlate?('<b>No play clears the edge bar right now.</b> That is a GOOD result \u2014 the disciplined move is to bet nothing today rather than force 52 plays. '+(t.verdict==='OVERCONFIDENT'?'(The bar is raised because the model is currently overconfident.)':'')):'<b>No slate loaded.</b> Open the <b>Games</b> tab and fetch today\u2019s slate, then come back \u2014 Sharp Mode will surface only the +EV plays.')+'</div>';
+  } else {
+    var totalStake=bets.reduce(function(s,b){return s+(b.stake||0);},0);
+    var rowsHtml=bets.map(function(b,i){return '<div style="margin:6px 0;border-top:1px solid rgba(255,255,255,.07);padding-top:6px"><div style="font-weight:700">'+(i+1)+'. '+esc(b.player)+' <span class="research-sub">'+esc(b.game||'')+'</span></div><div class="research-sub" style="margin-top:2px">model '+(b.calModel*100).toFixed(1)+'% HR \u00b7 '+fmtAmerican(b.book)+' (implied '+((1/b.dec)*100).toFixed(1)+'%) \u00b7 edge <b style="color:#39d98a">+'+(b.edge*100).toFixed(1)+'%</b> \u00b7 EV <b style="color:'+(b.ev>=0?'#39d98a':'#ff6b6b')+'">'+(b.ev>=0?'+':'')+(b.ev*100).toFixed(1)+'%</b></div><div style="margin-top:4px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="font-weight:800;color:#ffc34d">Bet $'+(b.stake||0).toFixed(2)+'</span><span class="research-sub" style="font-size:11px">('+(b.kf*100).toFixed(1)+'% Kelly @ $'+STAKE.bankroll+' bankroll)</span><button class="sharp-trk" data-i="'+i+'" style="font-size:11px;padding:2px 9px">\ud83d\udcdd Track</button></div></div>';}).join('');
+    betsHtml='<div style="margin-top:10px;border:1px solid rgba(255,195,77,.4);background:rgba(255,195,77,.07);border-radius:10px;padding:12px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;opacity:.75">Step 2 \u00b7 Bet only these ('+bets.length+')</div><div class="research-sub" style="margin:2px 0 4px">You placed 52 bets and went 0-for. These are the only plays today with a real, priced edge. Back THESE and skip everything else. Suggested total stake: <b>$'+totalStake.toFixed(2)+'</b>.</div>'+rowsHtml+'<div style="margin-top:8px"><button id="sharpTrackAll" style="font-size:12px">\ud83d\udcdd Track all '+bets.length+'</button></div></div>';
+  }
+  body.innerHTML=trustHtml+betsHtml;
+  var rb=document.getElementById('sharpRefresh');if(rb)rb.onclick=dlSharpRender;
+  Array.prototype.forEach.call(body.querySelectorAll('.sharp-trk'),function(btn){btn.onclick=function(){var b=bets[Number(btn.getAttribute('data-i'))];if(b){dlSharpTrackBet(b);toast('Tracked',b.player+' added to your ledger.','\ud83d\udcdd');}};});
+  var ta=document.getElementById('sharpTrackAll');if(ta)ta.onclick=function(){bets.forEach(dlSharpTrackBet);toast('Tracked',bets.length+' best bets added to your ledger.','\ud83d\udcdd');if(typeof dlLedgerRender==='function')dlLedgerRender();};
+}
+function dlInjectSharpCard(){var panel=document.querySelector('[data-panel="track"]');if(!panel||document.getElementById('dlSharpCard'))return;var card=document.createElement('div');card.id='dlSharpCard';card.className='dl-data-card';card.style.cssText='margin-bottom:14px;border:1px solid rgba(167,139,250,.45);background:rgba(167,139,250,.07)';card.innerHTML='<div class="dl-data-title">\u26a1 Sharp Mode \u2014 verify, then bet</div><div class="dl-data-sub">First confirm the model is actually predictive, then bet ONLY the few plays that clear a real, priced edge \u2014 sized by Kelly. The cure for 0-for-52 is selectivity, not volume. <button id="sharpRefresh" class="ghost" style="font-size:11px;padding:2px 8px;margin-left:6px">\u21bb Rebuild</button></div><div id="dlSharpBody" style="margin-top:10px"></div>';panel.insertBefore(card,panel.firstChild);dlSharpRender();}
+
 /* ===== v4.31 YouTube -> 3-Leg Parlay ===== */
 function dlYtNorm(s){return (' '+String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')+' ').replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ');}
 function dlYtCount(hay,needle){needle=(needle||'').trim();if(!needle)return 0;var c=0,key=' '+needle+' ',pos=hay.indexOf(key);while(pos>=0){c++;pos=hay.indexOf(key,pos+1);}return c;}
@@ -7601,6 +7677,81 @@ function dlYtPasteRun(){var ta=document.getElementById('ytTranscript');var t=(ta
 function dlInjectYtCard(){var panel=document.querySelector('[data-panel="research"]');if(!panel||document.getElementById('ytCard'))return;var card=document.createElement('div');card.id='ytCard';card.className='card';card.style.cssText='margin-bottom:12px;border:1px solid rgba(56,189,248,.35);background:rgba(56,189,248,.05)';card.innerHTML='<h3 style="margin:0 0 4px">\ud83c\udfa5 YouTube \u2192 3-Leg Parlay</h3><div class="research-sub">Paste a link to an MLB picks video. DingerLab reads the transcript, detects hitters the host explicitly picks or recommends (\u201clove him,\u201d \u201chammering,\u201d \u201cbest bet\u201d etc.), matches them to today\u2019s slate, and suggests the top 3 as parlay legs. Explicit picks surface as \ud83d\udcac badges on each leg.</div><div class="research-actions" style="margin-top:10px;align-items:flex-end"><div class="field" style="flex:1;min-width:220px"><label>YouTube URL</label><input id="ytUrl" placeholder="https://www.youtube.com/watch?v=\u2026"></div><button id="btnYtAnalyze">\ud83c\udfac Analyze video</button></div><details style="margin-top:8px"><summary class="research-sub">Paste transcript instead (works without the server, or when YouTube blocks the fetch)</summary><textarea id="ytTranscript" rows="5" placeholder="On YouTube: open the video \u2192 \u2026more \u2192 Show transcript \u2192 select all \u2192 copy \u2192 paste here" style="width:100%;margin-top:6px;padding:8px"></textarea><div style="margin-top:6px"><button id="btnYtPaste">Use pasted transcript</button></div></details><div id="ytResults" style="margin-top:10px"></div>';panel.insertBefore(card,panel.firstChild);var a=document.getElementById('btnYtAnalyze');if(a)a.onclick=dlYtAnalyze;var p=document.getElementById('btnYtPaste');if(p)p.onclick=dlYtPasteRun;}
 var __dlBaseRenderResearch=(typeof renderResearchPage==='function')?renderResearchPage:null;
 renderResearchPage=function(){if(__dlBaseRenderResearch)__dlBaseRenderResearch.apply(this,arguments);try{dlInjectYtCard();}catch(e){}};
+/* ---------- v4.41 HR Projection Board ---------- */
+function dlBoardPrice(r){return (r.hrBookAmerican!=null)?r.hrBookAmerican:(r.bestAmerican!=null?r.bestAmerican:null);}
+function dlBoardRows(){
+  var rows=(typeof DL_FEATURE_STORE!=='undefined'&&DL_FEATURE_STORE&&DL_FEATURE_STORE.length)?DL_FEATURE_STORE:((typeof dlBuildFeatureStore==='function')?dlBuildFeatureStore():[]);
+  var hr=(rows||[]).filter(function(r){return r&&r.market==='hr'&&r.hrModelProb!=null&&r.lineupStatus!=='out';});
+  var sort=window.__DL_BOARD_SORT||'hr';
+  hr.sort(function(a,b){
+    if(sort==='edge'){var ea=(a.hrEdgeProb==null?-1:a.hrEdgeProb),eb=(b.hrEdgeProb==null?-1:b.hrEdgeProb);return eb-ea;}
+    if(sort==='price'){var pa=dlBoardPrice(a),pb=dlBoardPrice(b);pa=(pa==null?-99999:amToDecimal(pa));pb=(pb==null?-99999:amToDecimal(pb));return pb-pa;}
+    return b.hrModelProb-a.hrModelProb;
+  });
+  return hr;
+}
+function dlHrBoardRender(){
+  var box=document.getElementById('dlHrBoardBody'); if(!box) return;
+  var rows=dlBoardRows();
+  if(!rows.length){
+    box.innerHTML='<div class="help-note" style="padding:12px">No projected HRs yet. Set the date and <b>fetch today’s games + odds</b> on this tab — the board then fills automatically, ranked by the model’s real HR probability. Nothing here is fabricated.</div>';
+    return;
+  }
+  window.__DL_BOARD_ROWS=rows;
+  var sort=window.__DL_BOARD_SORT||'hr';
+  function sbtn(key,label){var on=(sort===key);return '<button class="dl-board-sort" data-k="'+key+'" style="font-size:11px;padding:3px 9px;margin-right:5px;border-radius:7px;border:none;cursor:pointer;'+(on?'background:#a78bfa;color:#0b0e14;font-weight:700':'background:rgba(167,139,250,.14);color:#cbb8ff')+'">'+label+'</button>';}
+  var avg=rows.reduce(function(s,r){return s+r.hrModelProb;},0)/rows.length;
+  var edged=rows.filter(function(r){return r.hrEdgeProb!=null&&r.hrEdgeProb>0;}).length;
+  var controls='<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px"><span class="research-sub" style="font-size:11px">Sort:</span>'+sbtn('hr','HR %')+sbtn('edge','Edge')+sbtn('price','Best price')+'<span class="research-sub" style="margin-left:auto;font-size:11px">'+rows.length+' hitters · avg '+fmtPct(avg)+' · '+edged+' +EV</span></div>';
+  var body=rows.slice(0,40).map(function(r,i){
+    var price=dlBoardPrice(r);
+    var pos=(r.hrEdgeProb!=null&&r.hrEdgeProb>=0);
+    var lbl=r.hrEdgeLabel||'—';
+    var lblClass=(typeof v43DecisionClass==='function')?v43DecisionClass(r.hrEdgeLabel):'';
+    var tierCol=r.hrModelProb>=0.115?'#39d98a':(r.hrModelProb>=0.07?'#ffc34d':'#9fb0c3');
+    return '<tr style="border-top:1px solid rgba(255,255,255,.06)">'
+      +'<td style="padding:5px 4px;opacity:.6">'+(i+1)+'</td>'
+      +'<td style="padding:5px 4px"><b>'+esc(r.player)+'</b><div class="research-sub" style="font-size:11px">'+esc(r.game)+(r.lineupStatus==='in'?' · ✅ confirmed':' · proj')+'</div></td>'
+      +'<td style="padding:5px 4px;text-align:right;color:'+tierCol+';font-weight:800">'+fmtPct(r.hrModelProb)+'</td>'
+      +'<td style="padding:5px 4px;text-align:right">'+(price!=null?fmtAmerican(price):'—')+'</td>'
+      +'<td style="padding:5px 4px;text-align:right">'+(r.hrMarketProb!=null?fmtPct(r.hrMarketProb):'—')+'</td>'
+      +'<td style="padding:5px 4px;text-align:right;color:'+(pos?'#39d98a':'#ff6b6b')+';font-weight:700">'+(r.hrEdgeProb==null?'—':((r.hrEdgeProb>=0?'+':'')+(r.hrEdgeProb*100).toFixed(1)+'%'))+'</td>'
+      +'<td style="padding:5px 4px"><span class="v43-edge-label '+lblClass+'">'+esc(lbl)+'</span></td>'
+      +'<td style="padding:5px 4px" class="research-sub">'+esc(r.pitcherName||'TBD')+'</td>'
+      +'<td style="padding:5px 4px;text-align:right" class="research-sub">'+(r.parkWeatherBoost>=0?'+':'')+r.parkWeatherBoost+'%</td>'
+      +'<td style="padding:5px 4px"><button class="dl-board-trk" data-i="'+i+'" title="Track to Bet Ledger" style="font-size:11px;padding:2px 8px;cursor:pointer">📝</button></td>'
+      +'</tr>';
+  }).join('');
+  var table='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;color:#9fb0c3"><th style="padding:4px">#</th><th style="padding:4px">Hitter</th><th style="padding:4px;text-align:right">HR%</th><th style="padding:4px;text-align:right">Best</th><th style="padding:4px;text-align:right">Implied</th><th style="padding:4px;text-align:right">Edge</th><th style="padding:4px">Verdict</th><th style="padding:4px">Pitcher</th><th style="padding:4px;text-align:right">Park</th><th style="padding:4px"></th></tr></thead><tbody>'+body+'</tbody></table></div>';
+  var foot='<div class="research-sub" style="font-size:11px;margin-top:8px;opacity:.8">Green HR% = strong tier (≥ 11.5%) · amber = playable (≥ 7%) · gray = low. A high HR% is only a bet when the <b>Edge</b> is positive — that means the model beats the book’s price.</div>';
+  box.innerHTML=controls+table+foot;
+  Array.prototype.forEach.call(box.querySelectorAll('.dl-board-sort'),function(btn){btn.onclick=function(){window.__DL_BOARD_SORT=btn.getAttribute('data-k');dlHrBoardRender();};});
+  Array.prototype.forEach.call(box.querySelectorAll('.dl-board-trk'),function(btn){btn.onclick=function(){var r=(window.__DL_BOARD_ROWS||[])[Number(btn.getAttribute('data-i'))];if(r)dlBoardTrack(r);};});
+}
+function dlBoardTrack(r){
+  if(!r)return;
+  try{
+    var price=dlBoardPrice(r);
+    dlLedgerAdd({player:r.player,market:'hr',role:'',oddsTaken:(price!=null?Number(price):null),stake:1,closeOdds:null,result:'pending',dateStr:(typeof localDateStr==='function'?localDateStr(new Date()):new Date().toLocaleDateString())});
+    if(typeof toast==='function')toast('Tracked',r.player+' added to your ledger as a pending HR bet.','📝');
+    if(typeof dlLedgerRender==='function')dlLedgerRender();
+  }catch(e){if(typeof toast==='function')toast('Could not track','This pick could not be logged.','⚠️');}
+}
+function dlInjectHrBoard(){
+  var panel=document.querySelector('[data-panel="games"]');
+  if(!panel){return;}
+  if(document.getElementById('dlHrBoardCard')){if(document.getElementById('dlHrBoardBody'))dlHrBoardRender();return;}
+  var card=document.createElement('div');
+  card.id='dlHrBoardCard';
+  card.className='dl-data-card';
+  card.style.cssText='margin-bottom:14px;border:1px solid rgba(167,139,250,.45);background:rgba(167,139,250,.07)';
+  card.innerHTML='<div class="dl-data-title">🏟️ HR Projection Board</div><div class="dl-data-sub">Today’s hitters ranked by the model’s <b>real</b> home-run probability — with best price, implied %, edge vs. the book, and pitcher matchup. Built straight from the loaded slate (no fabricated picks). Tap 📝 to send a hitter to your Bet Ledger.</div><div id="dlHrBoardBody" style="margin-top:10px"></div>';
+  panel.insertBefore(card,panel.firstChild);
+  dlHrBoardRender();
+}
+var __dlBaseRenderGames2=(typeof renderGames==='function')?renderGames:null;
+renderGames=function(){if(__dlBaseRenderGames2)__dlBaseRenderGames2.apply(this,arguments);try{dlInjectHrBoard();}catch(e){}};
+
 
 function autoSuggestCard(){
   if(GAMES.length<2){$('#builderResults').innerHTML='<div class="help-note">Load a slate first.</div>';return;}
