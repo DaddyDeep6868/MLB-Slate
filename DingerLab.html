@@ -1340,8 +1340,8 @@ html{scroll-behavior:smooth;scrollbar-gutter:stable}body{overflow-y:auto;overscr
 <button class="mobile-slip-fab hidden" id="mobileSlipFab">🧾 Open slip</button>
 
 <script>
-const APP_VERSION = 'v4.41';
-const APP_UPDATED = 'Updated Jun 16, 2026 \u2014 v4.41: HR Projection Board on the Games tab \u2014 ranks every hitter on the loaded slate by the model\u2019s real home-run probability, with best price, implied odds, edge vs. the book and matchup, plus one-tap Track to the Bet Ledger.';
+const APP_VERSION = 'v4.42';
+const APP_UPDATED = 'Updated Jun 16, 2026 \u2014 v4.42: HR Hitter Monte Carlo simulation on the Games tab \u2014 runs thousands of simulated slates from calibrated HR probabilities, finds the +EV single and parlay picks, and shows how often that pick set actually profits before you bet.';
 {
   const av=document.getElementById('appVersion');
   if(av) av.textContent=APP_VERSION+' · '+APP_UPDATED;
@@ -7751,6 +7751,114 @@ function dlInjectHrBoard(){
 }
 var __dlBaseRenderGames2=(typeof renderGames==='function')?renderGames:null;
 renderGames=function(){if(__dlBaseRenderGames2)__dlBaseRenderGames2.apply(this,arguments);try{dlInjectHrBoard();}catch(e){}};
+/* ---------- v4.42 HR Hitter Monte Carlo Simulation ---------- */
+function dlSimPrice(r){return (r.hrBookAmerican!=null)?r.hrBookAmerican:(r.bestAmerican!=null?r.bestAmerican:null);}
+function dlSimTier(p){return (typeof dlSharpTierOf==='function')?dlSharpTierOf(p):(p>=0.115?'Great':(p>=0.07?'Good':'Low'));}
+function dlSimCalP(p){var t=dlSimTier(p);var c=(typeof calibratedJoint==='function')?calibratedJoint(p,t):p;return Math.min(0.999,c);}
+function dlSimPool(){
+  var rows=(typeof DL_FEATURE_STORE!=='undefined'&&DL_FEATURE_STORE&&DL_FEATURE_STORE.length)?DL_FEATURE_STORE:((typeof dlBuildFeatureStore==='function')?dlBuildFeatureStore():[]);
+  var out=[];
+  (rows||[]).forEach(function(r){
+    if(!r||r.market!=='hr'||r.hrModelProb==null||r.lineupStatus==='out')return;
+    var price=dlSimPrice(r); if(price==null)return;
+    var dec=amToDecimal(price); if(!dec)return;
+    var calP=dlSimCalP(r.hrModelProb);
+    var imp=1/dec;
+    out.push({player:r.player,game:r.game,gamePk:r.gamePk,p:calP,raw:r.hrModelProb,dec:dec,price:price,imp:imp,edge:calP-imp,ev:parlayEV(calP,dec),tier:dlSimTier(r.hrModelProb)});
+  });
+  return out;
+}
+function dlSimParlay(pool,legs){
+  var pos=pool.filter(function(x){return x.edge>0;}).sort(function(a,b){return b.edge-a.edge;});
+  var picks=[],usedG={};
+  for(var i=0;i<pos.length&&picks.length<legs;i++){var g=String(pos[i].gamePk);if(usedG[g])continue;usedG[g]=1;picks.push(pos[i]);}
+  return picks;
+}
+function dlSimMonteCarlo(singles,parlay,N){
+  var profit=0,wins=0,allLose=0,sumStake=0;
+  singles.forEach(function(s){sumStake+=s.stake;}); sumStake+=(parlay.stake||0);
+  var pStake=parlay.stake||0;
+  for(var t=0;t<N;t++){
+    var pnl=0,anyWin=false;
+    for(var i=0;i<singles.length;i++){if(Math.random()<singles[i].p){pnl+=singles[i].stake*(singles[i].dec-1);anyWin=true;}else{pnl-=singles[i].stake;}}
+    if(parlay.legs&&parlay.legs.length>=2){var hit=true;for(var j=0;j<parlay.legs.length;j++){if(Math.random()>=parlay.legs[j].p){hit=false;break;}}if(hit){pnl+=pStake*(parlay.dec-1);anyWin=true;}else{pnl-=pStake;}}
+    profit+=pnl; if(pnl>0)wins++; if(!anyWin)allLose++;
+  }
+  return {trials:N,mean:profit/N,pProfit:wins/N,pBust:allLose/N,stake:sumStake,roi:sumStake>0?((profit/N)/sumStake*100):0};
+}
+function dlSimTrackSingle(o){if(!o)return;try{dlLedgerAdd({player:o.player,market:'hr',role:'',oddsTaken:(o.price!=null?Number(o.price):null),stake:(Number((o.stake||1))||1),closeOdds:null,result:'pending',dateStr:(typeof localDateStr==='function'?localDateStr(new Date()):new Date().toLocaleDateString())});if(typeof toast==='function')toast('Tracked',o.player+' added to your ledger.','📝');if(typeof dlLedgerRender==='function')dlLedgerRender();}catch(e){}}
+function dlSimTrackParlay(p){if(!p||!p.legs||p.legs.length<2)return;try{dlLedgerAdd({player:p.legs.map(function(l){return l.player;}).join(' + '),market:'parlay',role:'',oddsTaken:(p.american!=null?Number(p.american):null),stake:(Number(p.stake||1)||1),closeOdds:null,result:'pending',legs:p.legs.map(function(l){return {name:l.player,odds:l.price,mkt:'hr'};}),dateStr:(typeof localDateStr==='function'?localDateStr(new Date()):new Date().toLocaleDateString())});if(typeof toast==='function')toast('Tracked','Simulated parlay added to your ledger.','💰');if(typeof dlLedgerRender==='function')dlLedgerRender();}catch(e){}}
+function dlSimRender(){
+  var box=document.getElementById('dlSimBody'); if(!box)return;
+  try{if(typeof readStakeCfg==='function')readStakeCfg();}catch(e){}
+  var pool=dlSimPool();
+  if(!pool.length){box.innerHTML='<div class="help-note" style="padding:12px">No priced HR projections to simulate yet. Fetch today’s games + odds on this tab first, then run the simulation.</div>';return;}
+  var nSel=document.getElementById('dlSimTrials'); var N=nSel?Number(nSel.value):25000;
+  var lSel=document.getElementById('dlSimLegs'); var legN=lSel?Number(lSel.value):3;
+  var pos=pool.filter(function(x){return x.edge>0;}).sort(function(a,b){return b.edge-a.edge;});
+  var seen={},singles=[];
+  for(var i=0;i<pos.length&&singles.length<3;i++){if(seen[pos[i].player])continue;seen[pos[i].player]=1;var ss=(typeof suggestStake==='function')?suggestStake(pos[i].p,pos[i].dec):{stake:0,f:0};var o={};for(var k in pos[i])o[k]=pos[i][k];o.stake=Math.max(0,Number((ss.stake||0).toFixed(2)));o.f=ss.f||0;singles.push(o);}
+  var plegs=dlSimParlay(pool,legN);
+  var parlay={legs:[],dec:1,joint:1,stake:0,american:null};
+  if(plegs.length>=2){var dec=1,joint=1;plegs.forEach(function(l){dec*=l.dec;joint*=l.p;});var ps=(typeof suggestStake==='function')?suggestStake(joint,dec):{stake:0};parlay={legs:plegs,dec:dec,joint:joint,stake:Math.max(0,Number((ps.stake||0).toFixed(2))),american:decToAmerican(dec)};}
+  if(!singles.length&&parlay.legs.length<2){box.innerHTML='<div class="help-note" style="padding:12px"><b>No +EV home-run plays in this slate.</b> Every priced hitter is shorter than the model says they should be — there is no edge to bet. The disciplined move today is to <b>pass</b>. That is exactly the call that ends 0-for-52 nights.</div>';return;}
+  var mc=dlSimMonteCarlo(singles,parlay,N);
+  window.__DL_SIM={singles:singles,parlay:parlay};
+  var expHR=pool.reduce(function(s,x){return s+x.p;},0);
+  var p1=1; singles.forEach(function(s){p1*=(1-s.p);}); p1=singles.length?(1-p1):0;
+  var col=mc.pProfit>=0.5?'#39d98a':(mc.pProfit>=0.35?'#ffc34d':'#ff6b6b');
+  function tile(label,val,c){return '<div style="flex:1;min-width:96px;border:1px solid '+c+'44;border-radius:10px;padding:7px 9px;background:'+c+'11"><div class="research-sub" style="font-size:10px;text-transform:uppercase;letter-spacing:.04em">'+label+'</div><div style="font-size:16px;font-weight:800;color:'+c+'">'+val+'</div></div>';}
+  var tiles='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">'
+    +tile('Simulated',N.toLocaleString()+' slates','#7dd3fc')
+    +tile('Avg P/L',(mc.mean>=0?'+$':'-$')+Math.abs(mc.mean).toFixed(2),mc.mean>=0?'#39d98a':'#ff6b6b')
+    +tile('ROI',(mc.roi>=0?'+':'')+mc.roi.toFixed(1)+'%',mc.roi>=0?'#39d98a':'#ff6b6b')
+    +tile('Profit odds',(mc.pProfit*100).toFixed(0)+'%',col)
+    +tile('Total-loss odds',(mc.pBust*100).toFixed(0)+'%',mc.pBust<=0.4?'#9fb0c3':'#ff6b6b')
+    +'</div>';
+  var slate='<div class="research-sub" style="font-size:12px;margin-bottom:10px">Slate expects <b>'+expHR.toFixed(1)+'</b> total HRs across '+pool.length+' priced hitters · chance at least one of your singles homers: <b>'+(p1*100).toFixed(0)+'%</b>.</div>';
+  var singHtml='';
+  if(singles.length){
+    singHtml='<div style="font-weight:700;margin:4px 0 4px">⭐ Best single picks <span class="research-sub" style="font-weight:400">(Kelly-sized)</span></div>';
+    singHtml+=singles.map(function(s,i){return '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 0;border-top:1px solid rgba(255,255,255,.06)">'
+      +'<div><b>'+esc(s.player)+'</b> <span class="research-sub">'+esc(s.game)+'</span><div class="research-sub" style="font-size:11px;margin-top:2px">model '+fmtPct(s.p)+' · implied '+fmtPct(s.imp)+' · edge <span style="color:#39d98a;font-weight:700">+'+(s.edge*100).toFixed(1)+'%</span> · '+fmtAmerican(s.price)+'</div></div>'
+      +'<div style="text-align:right;white-space:nowrap"><div style="font-weight:800;color:#7dd3fc">$'+s.stake.toFixed(2)+'</div><button class="dl-sim-trk" data-i="'+i+'" style="font-size:11px;padding:2px 8px;cursor:pointer;margin-top:3px">📝 Track</button></div></div>';}).join('');
+  } else { singHtml='<div class="research-sub" style="margin:6px 0">No +EV single HR plays — only the parlay below cleared the edge filter.</div>'; }
+  var parHtml='';
+  if(parlay.legs.length>=2){
+    var diff=(typeof slipDifficulty==='function')?slipDifficulty(parlay.joint):'';
+    parHtml='<div style="font-weight:700;margin:12px 0 4px">🎲 Best simulated '+parlay.legs.length+'-leg parlay <span class="research-sub" style="font-weight:400">(one leg per game'+(diff?' · '+esc(diff):'')+')</span></div>';
+    parHtml+=parlay.legs.map(function(l){return '<div style="padding:5px 0;border-top:1px solid rgba(255,255,255,.06)"><b>'+esc(l.player)+'</b> <span class="research-sub">'+esc(l.game)+' · '+fmtPct(l.p)+' HR · '+fmtAmerican(l.price)+'</span></div>';}).join('');
+    parHtml+='<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-top:6px"><div class="research-sub" style="font-size:12px">Combined hit chance <b>'+fmtPct(parlay.joint)+'</b> · price <b>'+(parlay.american!=null?parlay.american:'—')+'</b> · suggested <b>$'+parlay.stake.toFixed(2)+'</b></div><button id="dlSimTrackParlayBtn" style="font-size:11px;padding:3px 9px;cursor:pointer">📝 Track parlay</button></div>';
+  }
+  var verdict;
+  if(mc.pProfit>=0.5)verdict='<div class="research-status good" style="margin-top:10px">✅ This pick set profits in <b>'+(mc.pProfit*100).toFixed(0)+'%</b> of simulated slates with a <b>'+(mc.roi>=0?'+':'')+mc.roi.toFixed(1)+'%</b> expected ROI. These are picks worth backing — at the suggested sizes.</div>';
+  else if(mc.mean>=0)verdict='<div class="research-status warn" style="margin-top:10px">⚠️ Positive expected value but high variance — profits only '+(mc.pProfit*100).toFixed(0)+'% of the time. Bet small, expect swings, and let the edge play out over many slates, not one night.</div>';
+  else verdict='<div class="research-status warn" style="margin-top:10px">🛑 Expected value is <b>negative</b> at these prices. The disciplined move is to <b>pass</b> or bet only tiny. Forcing action here is how a 0-for-52 night happens.</div>';
+  var actions=singles.length?'<div style="margin-top:10px"><button id="dlSimTrackAll" style="font-size:12px;padding:4px 10px;cursor:pointer">📝 Track all singles</button></div>':'';
+  box.innerHTML=tiles+slate+singHtml+parHtml+verdict+actions;
+  Array.prototype.forEach.call(box.querySelectorAll('.dl-sim-trk'),function(btn){btn.onclick=function(){var s=(window.__DL_SIM&&window.__DL_SIM.singles)?window.__DL_SIM.singles[Number(btn.getAttribute('data-i'))]:null;if(s)dlSimTrackSingle(s);};});
+  var allBtn=document.getElementById('dlSimTrackAll'); if(allBtn)allBtn.onclick=function(){(window.__DL_SIM&&window.__DL_SIM.singles||[]).forEach(function(s){dlSimTrackSingle(s);});};
+  var pBtn=document.getElementById('dlSimTrackParlayBtn'); if(pBtn)pBtn.onclick=function(){if(window.__DL_SIM&&window.__DL_SIM.parlay)dlSimTrackParlay(window.__DL_SIM.parlay);};
+}
+function dlInjectSimCard(){
+  var panel=document.querySelector('[data-panel="games"]'); if(!panel)return;
+  if(document.getElementById('dlSimCard'))return;
+  var card=document.createElement('div'); card.id='dlSimCard'; card.className='dl-data-card';
+  card.style.cssText='margin-bottom:14px;border:1px solid rgba(56,189,248,.45);background:rgba(56,189,248,.06)';
+  card.innerHTML='<div class="dl-data-title">🎲 HR Hitter Simulation (Monte Carlo)</div>'
+    +'<div class="dl-data-sub">Runs thousands of simulated slates from the model’s calibrated HR probabilities, finds the +EV picks, and shows how often a portfolio of them actually <b>turns a profit</b>. Find picks you can trust — or get told to pass.</div>'
+    +'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:8px">'
+    +'<label class="research-sub" style="display:flex;align-items:center;gap:5px">Trials <select id="dlSimTrials"><option>10000</option><option selected>25000</option><option>50000</option></select></label>'
+    +'<label class="research-sub" style="display:flex;align-items:center;gap:5px">Parlay legs <select id="dlSimLegs"><option>2</option><option selected>3</option><option>4</option></select></label>'
+    +'<button id="dlSimRun" style="cursor:pointer">🎲 Run simulation</button></div>'
+    +'<div id="dlSimBody" style="margin-top:10px"><div class="help-note" style="padding:12px">Load today’s slate + odds, then click <b>Run simulation</b> to find your picks.</div></div>';
+  var board=document.getElementById('dlHrBoardCard');
+  if(board&&board.parentNode===panel)panel.insertBefore(card,board.nextSibling); else panel.insertBefore(card,panel.firstChild);
+  var btn=document.getElementById('dlSimRun'); if(btn)btn.onclick=function(){try{dlSimRender();}catch(e){if(typeof toast==='function')toast('Sim error','Could not run simulation.','⚠️');}};
+}
+var __dlBaseRenderGames3=(typeof renderGames==='function')?renderGames:null;
+renderGames=function(){if(__dlBaseRenderGames3)__dlBaseRenderGames3.apply(this,arguments);try{dlInjectSimCard();}catch(e){}};
+
 
 
 function autoSuggestCard(){
