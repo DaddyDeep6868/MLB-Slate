@@ -824,6 +824,93 @@ html{scroll-behavior:smooth;scrollbar-gutter:stable}body{overflow-y:auto;overscr
 /* v4.11 Automated Twitter setup wizard */
 .tw-setup{margin-top:12px;border:1px solid var(--notion-border-soft);border-radius:14px;background:var(--notion-bg-soft);padding:12px}.tw-setup-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.tw-setup-title{font-weight:900;font-size:14px}.tw-step-badge{font-size:11px;font-weight:850;border:1px solid var(--notion-border-soft);border-radius:999px;padding:3px 9px;background:var(--notion-surface);color:var(--notion-text-soft)}.tw-steps{display:grid;gap:8px;margin-top:10px}.tw-step{display:flex;gap:10px;border:1px solid var(--notion-border-soft);border-radius:12px;background:var(--notion-surface);padding:10px}.tw-step.done{border-color:#bbf7d0;background:#22c55e10}.tw-step.active{border-color:#38bdf8;background:#38bdf810}.tw-step-n{width:24px;height:24px;flex:0 0 24px;border-radius:50%;background:var(--notion-bg-soft);border:1px solid var(--notion-border-soft);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900}.tw-step.done .tw-step-n{background:#22c55e;color:#fff;border-color:#22c55e}.tw-step-body{flex:1}.tw-step-name{font-weight:850;font-size:13px}.tw-step-desc{font-size:11.5px;color:var(--notion-text-soft);line-height:1.4;margin:2px 0 7px}.tw-step button{font-size:11.5px;min-height:30px}.tw-login-row{display:flex;flex-wrap:wrap;gap:6px}.tw-setup-actions{margin-top:10px}.tw-setup-actions button{min-height:34px}
 
+
+/* === v4.44 Mobile Design System === */
+/* ============================================================
+   v4.44 Mobile Design System
+   Scoped to body.mobile-layout. Appended last so it refines the
+   existing mobile rules via normal source-order cascade.
+   ============================================================ */
+
+/* Design tokens + kill the grey tap flash */
+body.mobile-layout{ -webkit-tap-highlight-color:transparent; --m-radius:16px; }
+body.mobile-layout *{ -webkit-tap-highlight-color:transparent; }
+
+/* Inputs: 16px stops iOS zoom-on-focus; comfortable height + radius */
+body.mobile-layout input,
+body.mobile-layout select,
+body.mobile-layout textarea{ font-size:16px; min-height:44px; border-radius:12px; }
+
+/* Touch targets: 44px minimum on interactive controls (chips stay compact) */
+body.mobile-layout button{ min-height:44px; touch-action:manipulation; transition:transform .08s ease, background .15s ease, border-color .15s ease; }
+body.mobile-layout .chip{ min-height:0; }
+body.mobile-layout .toolbar .field button,
+body.mobile-layout .builder-actions button{ min-height:46px; font-size:13px; }
+
+/* Tactile press feedback */
+body.mobile-layout button:active,
+body.mobile-layout .game-card:active,
+body.mobile-layout .mobile-summary-pill:active{ transform:scale(.975); }
+
+/* Header legibility */
+body.mobile-layout .app-header .brand{ font-size:17px; }
+body.mobile-layout h2{ font-size:25px; }
+
+/* Content clears the fixed bottom nav (+ iOS safe area) */
+body.mobile-layout .app-wrap{ padding:14px 12px calc(98px + env(safe-area-inset-bottom, 0px)); }
+
+/* Cards: more air, softer depth, bigger matchup line */
+body.mobile-layout .game-card{ margin-top:14px; border-radius:var(--m-radius); box-shadow:0 2px 10px rgba(15,23,42,.06); }
+body.mobile-layout .game-head{ padding:14px; }
+body.mobile-layout .game-body{ padding:6px 14px 16px; }
+body.mobile-layout .game-matchup{ font-size:16.5px; line-height:1.2; }
+
+/* Summary bar: snap scrolling + cleaner pills */
+body.mobile-layout .mobile-summary-bar{ scroll-snap-type:x proximity; -webkit-overflow-scrolling:touch; gap:10px; padding:10px 0 12px; }
+body.mobile-layout .mobile-summary-pill{ scroll-snap-align:start; min-width:128px; border-radius:16px; box-shadow:0 1px 6px rgba(15,23,42,.05); }
+body.mobile-layout .mobile-summary-pill .v{ font-size:19px; }
+
+/* ===== Bottom navigation: pinned for thumb reach ===== */
+body.mobile-layout .mobile-quickbar{
+  position:fixed; left:0; right:0; bottom:0; top:auto;
+  grid-template-columns:repeat(6,1fr); gap:2px;
+  margin:0; padding:6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
+  z-index:9000;
+  background:color-mix(in srgb, var(--notion-bg) 92%, transparent);
+  -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px);
+  border-top:1px solid var(--notion-border-soft);
+  box-shadow:0 -6px 22px rgba(15,23,42,.10);
+  border-radius:0;
+}
+body.mobile-layout .mobile-quickbar button{
+  min-height:50px; padding:7px 2px; font-size:10.5px; font-weight:700;
+  border:none; background:transparent; color:var(--notion-text-soft);
+  border-radius:12px; white-space:nowrap; letter-spacing:.01em;
+  display:flex; align-items:center; justify-content:center;
+}
+body.mobile-layout .mobile-quickbar button.active{
+  background:rgba(37,99,235,.16); color:#2563eb;
+}
+/* Hide the bottom nav while the slip drawer is open */
+body.mobile-layout.mobile-slip-open .mobile-quickbar{ display:none !important; }
+
+/* Slip launcher floats just above the bottom nav */
+body.mobile-layout .mobile-slip-fab{
+  bottom:calc(80px + env(safe-area-inset-bottom, 0px));
+  min-height:44px;
+}
+
+/* Drawer: larger touch + momentum scroll */
+body.mobile-layout .drawer-b{ -webkit-overflow-scrolling:touch; }
+body.mobile-layout .drawer-h button{ min-height:40px; padding:8px 12px; font-size:12px; }
+
+/* Top tab bar: snap + 44px height */
+body.mobile-layout .tabbar{ scroll-snap-type:x proximity; }
+body.mobile-layout .tabbar button{ min-height:44px; scroll-snap-align:start; }
+
+/* Wide tables scroll smoothly */
+body.mobile-layout table.players{ -webkit-overflow-scrolling:touch; }
+
 </style>
 </head>
 <body>
@@ -1340,8 +1427,8 @@ html{scroll-behavior:smooth;scrollbar-gutter:stable}body{overflow-y:auto;overscr
 <button class="mobile-slip-fab hidden" id="mobileSlipFab">🧾 Open slip</button>
 
 <script>
-const APP_VERSION = 'v4.43';
-const APP_UPDATED = 'Updated Jun 16, 2026 \u2014 v4.43: Market-anchored calibration \u2014 HR probabilities are regressed toward the book so edges land in a realistic range and the fantasy ROI is gone. Picks whose model was overconfident are flagged, and the simulator warns when results look too good to be true.';
+const APP_VERSION = 'v4.44';
+const APP_UPDATED = 'Updated Jun 19, 2026 — v4.44: Mobile design system - bottom tab navigation for thumb reach, 44px touch targets, inputs that no longer zoom when tapped, snap-scrolling summary pills, roomier game cards, and a cleaner slip drawer. Tuned for iPhone and Android.';
 {
   const av=document.getElementById('appVersion');
   if(av) av.textContent=APP_VERSION+' · '+APP_UPDATED;
