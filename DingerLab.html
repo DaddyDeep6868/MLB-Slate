@@ -911,7 +911,119 @@ body.mobile-layout .tabbar button{ min-height:44px; scroll-snap-align:start; }
 /* Wide tables scroll smoothly */
 body.mobile-layout table.players{ -webkit-overflow-scrolling:touch; }
 
+
+/* === v4.45 Ballpark Telemetry === */
+/* ============================================================
+   v4.45 Ballpark Telemetry - mobile visual identity
+   Scoped to body.mobile-layout. Re-maps the app's --notion-*
+   tokens to a night-game ballpark palette (mobile only).
+   ============================================================ */
+body.mobile-layout{
+  /* Ballpark token system */
+  --dl-night:#0C1A17;            /* deep night-field background */
+  --dl-night-2:#0F231E;          /* gradient floor */
+  --dl-grass:#13302A;            /* raised surface */
+  --dl-grass-hi:#1A3D34;         /* hover */
+  --dl-chalk:#EDF2EA;            /* primary text (warm chalk) */
+  --dl-sage:#9DB3A8;             /* secondary text */
+  --dl-lights:#FFC23C;           /* stadium-light amber - signature accent */
+  --dl-lights-soft:rgba(255,194,60,.14);
+  --dl-clay:#C9703B;             /* infield clay - warm structural */
+  --dl-line:rgba(237,242,234,.12);
+
+  /* Re-map the design tokens (mobile only) */
+  --notion-bg:var(--dl-night);
+  --notion-bg-soft:var(--dl-night-2);
+  --notion-surface:var(--dl-grass);
+  --notion-surface-hover:var(--dl-grass-hi);
+  --notion-text:var(--dl-chalk);
+  --notion-text-soft:var(--dl-sage);
+  --notion-text-faint:rgba(237,242,234,.4);
+  --notion-border:var(--dl-line);
+  --notion-border-soft:rgba(237,242,234,.08);
+  --notion-accent:var(--dl-lights);
+  --notion-blue:var(--dl-lights);
+
+  background:var(--dl-night);
+  color:var(--dl-chalk);
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+}
+
+/* Display face = athletic / scoreboard condensed */
+body.mobile-layout h1,
+body.mobile-layout h2,
+body.mobile-layout h3,
+body.mobile-layout .brand,
+body.mobile-layout .game-matchup,
+body.mobile-layout .section-title{
+  font-family:'Barlow Condensed','Arial Narrow','Inter',sans-serif;
+  letter-spacing:.01em;
+}
+body.mobile-layout h2{ text-transform:uppercase; letter-spacing:.02em; font-weight:700; }
+
+/* Telemetry numerics = mono tabular readout (used sparingly) */
+body.mobile-layout .mobile-summary-pill .v,
+body.mobile-layout .v43-edge-metric,
+body.mobile-layout .mobile-slip-fab{
+  font-family:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-variant-numeric:tabular-nums;
+}
+
+/* Override hardcoded-white component surfaces for the dark field */
+body.mobile-layout .v42-dna-card,
+body.mobile-layout .v43-edge-card,
+body.mobile-layout .game-card{
+  background:linear-gradient(180deg,var(--dl-grass),var(--dl-night));
+  border:1px solid var(--dl-line);
+}
+body.mobile-layout .v42-badge,
+body.mobile-layout .v43-chip{ background:rgba(237,242,234,.06); color:var(--dl-chalk); }
+
+/* ===== Signature: stadium lights + launch arc ===== */
+/* Summary pills: the key value glows like a readout under the lights */
+body.mobile-layout .mobile-summary-pill{
+  background:linear-gradient(180deg,var(--dl-grass),var(--dl-night-2));
+  border-color:var(--dl-line);
+}
+body.mobile-layout .mobile-summary-pill .v{ color:var(--dl-lights); }
+body.mobile-layout .mobile-summary-pill .k{ color:var(--dl-sage); }
+
+/* A thin parabolic launch-arc accent under the page heading */
+body.mobile-layout h2{ position:relative; padding-bottom:10px; }
+body.mobile-layout h2::after{
+  content:''; position:absolute; left:0; bottom:0; height:3px; width:84px;
+  border-radius:3px;
+  background:linear-gradient(90deg,var(--dl-lights),var(--dl-clay));
+}
+
+/* Bottom nav: active tab lit like a stadium light, not generic blue */
+body.mobile-layout .mobile-quickbar{
+  background:color-mix(in srgb, var(--dl-night) 90%, transparent);
+  border-top:1px solid var(--dl-line);
+}
+body.mobile-layout .mobile-quickbar button.active{
+  background:var(--dl-lights-soft); color:var(--dl-lights);
+  box-shadow:inset 0 1px 0 rgba(255,194,60,.35);
+}
+
+/* Slip launcher = the one bold amber object */
+body.mobile-layout .mobile-slip-fab{
+  background:linear-gradient(180deg,var(--dl-lights),#E9A521);
+  color:#1A1205; border:none; font-weight:800;
+  box-shadow:0 10px 28px rgba(255,194,60,.30);
+}
+
+/* Toolbar glass over the field */
+body.mobile-layout .toolbar{ border:1px solid var(--dl-line); }
+
+/* Quality floor: visible focus + reduced motion */
+body.mobile-layout :focus-visible{ outline:2px solid var(--dl-lights); outline-offset:2px; }
+@media (prefers-reduced-motion: reduce){
+  body.mobile-layout *{ animation-duration:.001ms !important; transition-duration:.001ms !important; }
+}
+
 </style>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 </head>
 <body>
 <header class="app-header">
@@ -1427,8 +1539,8 @@ body.mobile-layout table.players{ -webkit-overflow-scrolling:touch; }
 <button class="mobile-slip-fab hidden" id="mobileSlipFab">🧾 Open slip</button>
 
 <script>
-const APP_VERSION = 'v4.44';
-const APP_UPDATED = 'Updated Jun 19, 2026 — v4.44: Mobile design system - bottom tab navigation for thumb reach, 44px touch targets, inputs that no longer zoom when tapped, snap-scrolling summary pills, roomier game cards, and a cleaner slip drawer. Tuned for iPhone and Android.';
+const APP_VERSION = 'v4.45';
+const APP_UPDATED = 'Updated Jun 19, 2026 — v4.45: Ballpark Telemetry mobile identity - a night-game field palette with stadium-light amber, scoreboard condensed headings, mono telemetry numerics, a launch-arc accent, and a single bold amber slip button. Replaces the generic dark dashboard look on mobile.';
 {
   const av=document.getElementById('appVersion');
   if(av) av.textContent=APP_VERSION+' · '+APP_UPDATED;
