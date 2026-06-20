@@ -1022,8 +1022,150 @@ body.mobile-layout :focus-visible{ outline:2px solid var(--dl-lights); outline-o
   body.mobile-layout *{ animation-duration:.001ms !important; transition-duration:.001ms !important; }
 }
 
+
+/* === v4.46 UX polish (ui-ux-pro-max) === */
+/* ============================================================
+   v4.46 UX polish - applies ui-ux-pro-max CRITICAL/HIGH rules
+   on top of the v4.45 Ballpark Telemetry theme. Mobile only.
+   ============================================================ */
+
+/* number-tabular: data must not shift layout as digits change.
+   Tabular figures across the whole mobile app (odds, edges, prob, stakes). */
+body.mobile-layout{ font-variant-numeric:tabular-nums; font-feature-settings:'tnum' 1; }
+
+/* Signature reinforcement: minimal glow on the amber readout
+   (skill 'Dark Mode (OLED)' effect: text-shadow 0 0 10px). Kept subtle. */
+body.mobile-layout .mobile-summary-pill .v{ text-shadow:0 0 10px rgba(255,194,60,.35); }
+
+/* press-feedback + scale-feedback: immediate, on-style, no layout shift.
+   ease-out enter; transform/opacity only (transform-performance). */
+@media (prefers-reduced-motion: no-preference){
+  body.mobile-layout .game-card,
+  body.mobile-layout .v43-edge-card,
+  body.mobile-layout .v42-dna-card,
+  body.mobile-layout .mobile-summary-pill{
+    transition:transform .15s ease-out, box-shadow .2s ease-out, border-color .2s ease-out;
+  }
+  body.mobile-layout .game-card:active,
+  body.mobile-layout .v43-edge-card:active,
+  body.mobile-layout .v42-dna-card:active,
+  body.mobile-layout .mobile-summary-pill:active{ transform:scale(.985); }
+}
+
+/* touch-target-size: any inline track / action chips reach 44px tap height. */
+body.mobile-layout .dl-board-trk,
+body.mobile-layout .dl-sim-trk,
+body.mobile-layout .dl-board-sort,
+body.mobile-layout .v43-chip[role="button"]{
+  min-height:44px; display:inline-flex; align-items:center;
+}
+
+/* visual-hierarchy / contrast: status pills stay bright + legible on the
+   dark field, and carry tabular figures for any inline numbers. */
+body.mobile-layout .v42-badge,
+body.mobile-layout .v43-chip{ font-variant-numeric:tabular-nums; }
+
+/* gridline-subtle / divider parity: keep separators visible on dark field. */
+body.mobile-layout hr,
+body.mobile-layout .divider{ border-color:rgba(237,242,234,.12); }
+
+
+/* === v4.47 Glassmorphism + Space Grotesk + SVG nav === */
+/* ============================================================
+   v4.47 - Glassmorphism + Space Grotesk + SVG nav (mobile only)
+   Layered on the v4.45 Ballpark Telemetry theme. ui-ux-pro-max:
+   backdrop-filter blur 10-20px, translucent 15-30%, 1px light
+   border, vibrant bg behind, text contrast 4.5:1.
+   ============================================================ */
+
+body.mobile-layout{
+  --dl-glass:rgba(237,242,234,.06);
+  --dl-glass-2:rgba(237,242,234,.10);
+  --dl-glass-bd:rgba(237,242,234,.14);
+  /* Ambient field glow gives the frosted glass real depth to blur */
+  background:
+    radial-gradient(58% 38% at 86% 6%, rgba(255,194,60,.12), transparent 60%),
+    radial-gradient(52% 36% at 8% 2%, rgba(46,180,128,.10), transparent 58%),
+    var(--dl-night);
+}
+
+/* ---- Display face -> Space Grotesk (body stays Inter, nums IBM Plex Mono) ---- */
+body.mobile-layout h1,
+body.mobile-layout h2,
+body.mobile-layout h3,
+body.mobile-layout .section-title,
+body.mobile-layout .brand{
+  font-family:'Space Grotesk','Inter',system-ui,sans-serif;
+  letter-spacing:0;
+}
+
+/* ---- Frosted glass on fixed chrome + overlays (blur where it counts) ---- */
+body.mobile-layout .toolbar,
+body.mobile-layout .mobile-quickbar,
+body.mobile-layout .mobile-slip,
+body.mobile-layout .mobile-slip-fab,
+body.mobile-layout .mobile-summary-pill{
+  -webkit-backdrop-filter:blur(16px) saturate(1.3);
+  backdrop-filter:blur(16px) saturate(1.3);
+}
+body.mobile-layout .mobile-quickbar{
+  background:linear-gradient(180deg, rgba(12,26,23,.72), rgba(12,26,23,.88));
+  border-top:1px solid var(--dl-glass-bd);
+  box-shadow:0 -8px 24px rgba(0,0,0,.32);
+}
+body.mobile-layout .toolbar{
+  background:rgba(12,26,23,.60);
+  border:1px solid var(--dl-glass-bd);
+}
+body.mobile-layout .mobile-summary-pill{
+  background:var(--dl-glass);
+  border:1px solid var(--dl-glass-bd);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+}
+body.mobile-layout .mobile-slip{
+  background:rgba(15,35,30,.80);
+  border:1px solid var(--dl-glass-bd);
+}
+
+/* ---- Cards: frosted look (translucent + top highlight). No backdrop blur
+   here on purpose: cards re-render often + many on screen = blur is costly. ---- */
+body.mobile-layout .game-card,
+body.mobile-layout .v43-edge-card,
+body.mobile-layout .v42-dna-card{
+  background:linear-gradient(180deg, rgba(237,242,234,.07), rgba(237,242,234,.025));
+  border:1px solid var(--dl-glass-bd);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05), 0 8px 24px rgba(0,0,0,.28);
+}
+
+/* ---- Slip FAB: glass amber, signature primary action ---- */
+body.mobile-layout .mobile-slip-fab{
+  background:linear-gradient(180deg, rgba(255,200,76,.94), rgba(233,165,33,.94));
+  -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
+}
+
+/* ---- Bottom nav: SVG icon stacked over label (skill: nav icon + text) ---- */
+body.mobile-layout .mobile-quickbar button{
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:3px; font-size:10px; line-height:1; letter-spacing:.02em;
+  font-family:'Space Grotesk','Inter',system-ui,sans-serif;
+}
+body.mobile-layout .mobile-quickbar button svg{
+  width:22px; height:22px; display:block;
+}
+body.mobile-layout .mobile-slip-fab svg{
+  width:17px; height:17px; vertical-align:-3px; margin-right:7px;
+}
+body.mobile-layout .mobile-slip-fab{ display:inline-flex; align-items:center; }
+
+/* ---- Graceful fallback if backdrop-filter unsupported: go opaque ---- */
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  body.mobile-layout .mobile-quickbar{ background:rgba(12,26,23,.97); }
+  body.mobile-layout .toolbar{ background:rgba(12,26,23,.96); }
+  body.mobile-layout .mobile-slip{ background:rgba(15,35,30,.98); }
+}
+
 </style>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 </head>
 <body>
 <header class="app-header">
@@ -1068,12 +1210,12 @@ body.mobile-layout :focus-visible{ outline:2px solid var(--dl-lights); outline-o
     <button data-tab="live">Live</button>
   </div>
   <div class="mobile-quickbar" id="mobileQuickbar">
-    <button data-mobile-jump="dashboard">Home</button>
-    <button data-mobile-jump="games">Games</button>
-    <button data-mobile-jump="builder">Builder</button>
-    <button data-mobile-jump="data">Data</button>
-    <button data-mobile-jump="research">Research</button>
-    <button data-mobile-jump="slip">Betslip</button>
+    <button data-mobile-jump="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg><span>Home</span></button>
+    <button data-mobile-jump="games"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M5.5 5.5C7.8 7.6 7.8 16.4 5.5 18.5"/><path d="M18.5 5.5c-2.3 2.1-2.3 10.9 0 13"/></svg><span>Games</span></button>
+    <button data-mobile-jump="builder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 2 9 5-9 5-9-5 9-5z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg><span>Builder</span></button>
+    <button data-mobile-jump="data"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/></svg><span>Data</span></button>
+    <button data-mobile-jump="research"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><span>Research</span></button>
+    <button data-mobile-jump="slip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2v20l2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg><span>Betslip</span></button>
   </div>
 
   <!-- SETTINGS (hidden) -->
@@ -1536,11 +1678,11 @@ body.mobile-layout :focus-visible{ outline:2px solid var(--dl-lights); outline-o
     <div class="row"><span class="lbl">Potential profit</span><span class="val" id="slipProfit">—</span></div>
   </div>
 </div>
-<button class="mobile-slip-fab hidden" id="mobileSlipFab">🧾 Open slip</button>
+<button class="mobile-slip-fab hidden" id="mobileSlipFab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2v20l2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg><span>Open slip</span></button>
 
 <script>
-const APP_VERSION = 'v4.45';
-const APP_UPDATED = 'Updated Jun 19, 2026 — v4.45: Ballpark Telemetry mobile identity - a night-game field palette with stadium-light amber, scoreboard condensed headings, mono telemetry numerics, a launch-arc accent, and a single bold amber slip button. Replaces the generic dark dashboard look on mobile.';
+const APP_VERSION = 'v4.47';
+const APP_UPDATED = 'Updated Jun 20, 2026 — v4.47: Frosted-glass mobile UI - blurred translucent nav, toolbar and betslip over an ambient night-field glow, Space Grotesk display type, and crisp SVG icons in the bottom nav and slip button (no more emoji). Mobile only.';
 {
   const av=document.getElementById('appVersion');
   if(av) av.textContent=APP_VERSION+' · '+APP_UPDATED;
@@ -1595,7 +1737,7 @@ function renderMobileChrome(){
     var hidden=(document.getElementById('betslip')||{classList:{contains:function(){return true;}}}).classList.contains('hidden');
     document.body.classList.toggle('mobile-slip-open', !!(mobile && !hidden));
     fab.classList.toggle('hidden', !mobile || !hidden);
-    fab.textContent='🧾 '+(SLIP.length?('Slip · '+SLIP.length):'Open slip');
+    fab.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2v20l2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg><span>'+(SLIP.length?('Slip · '+SLIP.length):'Open slip')+'</span>';
   } else {
     document.body.classList.remove('mobile-slip-open');
   }
