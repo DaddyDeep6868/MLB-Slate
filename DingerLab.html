@@ -1681,11 +1681,11 @@ body.mobile-layout .mobile-slip-fab{ display:inline-flex; align-items:center; }
 <button class="mobile-slip-fab hidden" id="mobileSlipFab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2v20l2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg><span>Open slip</span></button>
 
 <script>
-const APP_VERSION = 'v4.47';
-const APP_UPDATED = 'Updated Jun 20, 2026 — v4.47: Frosted-glass mobile UI - blurred translucent nav, toolbar and betslip over an ambient night-field glow, Space Grotesk display type, and crisp SVG icons in the bottom nav and slip button (no more emoji). Mobile only.';
+const APP_VERSION = 'v4.48';
+const APP_UPDATED = 'Updated Jun 20, 2026 — v4.48: Fetch slate now auto-runs the Data Intelligence simulation, and the header version label is trimmed so it no longer stretches the screen.';
 {
   const av=document.getElementById('appVersion');
-  if(av) av.textContent=APP_VERSION+' · '+APP_UPDATED;
+  if(av){ av.textContent=APP_VERSION; av.title=APP_UPDATED; }
   const lv=document.getElementById('loginVersionNote');
   if(lv) lv.innerHTML='Version <b>'+APP_VERSION+'</b>';
 }
@@ -6267,6 +6267,7 @@ function init(){
       if(activeTab==='insights') renderInsights();
       if(activeTab==='command') renderCommandCenter();
       if(activeTab==='portfolio') renderPortfolio();
+      try{ if(typeof dlRunSimulation==='function'){ dlRunSimulation(); logln('Data Intelligence Module: feature store built and simulation run automatically.'); } }catch(e){ console.error(e); }
     }catch(e){
       console.error(e);
       setStatus('Odds load failed: '+e.message);
