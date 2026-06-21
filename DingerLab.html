@@ -51,8 +51,8 @@
 <div id="toast"></div>
 <script>
 /* ===================== DingerLab — Stadium Night ===================== */
-var APP_VERSION = "v6.6";
-var APP_UPDATED = "2026-06-21 \u2014 Live board fixes: hardened odds parsing so the bet slip math (parlay odds, payout, EV, Kelly) computes for every leg, spread the Dinger score scale so it is no longer pinned at 97, and required a true multi-book no-vig de-vig for headline EV and combos to drop bogus single-book edges.";
+var APP_VERSION = "v6.7";
+var APP_UPDATED = "2026-06-21 \u2014 Fixed the slate game count: the header pill and Games tab title multiplied the seed total by 7 (showing 105 instead of the real 15); both now show the actual number of games loaded from the live schedule.";
 
 var CFG = { backend: "https://mlb-slate.onrender.com" };
 var AC="#ff8a4c", POS="#35d0c0", GOLD="#ffc24d", PINK="#ff5ea8", PURPLE="#a78bfa", WARN="#ff6b6b";
@@ -213,7 +213,7 @@ function headerEl(){
   return "<header style=\"position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:14px;padding:14px 22px;background:rgba(10,12,17,.82);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)\">"+
     "<div style=\"display:flex;align-items:center;gap:11px\"><div style=\"width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-size:19px;background:linear-gradient(150deg,#ff8a4c,#ff4d7d);box-shadow:0 6px 20px rgba(255,77,125,.35)\">\uD83D\uDD25</div>"+
       "<div style=\"line-height:1\"><div style=\"font-family:'Space Grotesk';font-weight:700;font-size:19px;letter-spacing:-.02em\">Dinger<span style=\"color:var(--ac)\">Lab</span></div><div style=\"font-size:11px;color:#7b8597;letter-spacing:.04em;margin-top:2px\">MLB HR INTELLIGENCE</div></div></div>"+
-    "<div style=\"display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:10px;background:var(--surface);border:1px solid var(--line)\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#9aa3b2\" stroke-width=\"1.8\" stroke-linecap=\"round\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"18\" rx=\"2\"></rect><path d=\"M16 2v4M8 2v4M3 10h18\"></path></svg><span style=\"font-size:13px;font-weight:600\">"+esc(ds)+"</span><span style=\"font-size:12px;color:#7b8597\">· "+GAMES.length*7+" games</span></div>"+
+    "<div style=\"display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:10px;background:var(--surface);border:1px solid var(--line)\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#9aa3b2\" stroke-width=\"1.8\" stroke-linecap=\"round\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"18\" rx=\"2\"></rect><path d=\"M16 2v4M8 2v4M3 10h18\"></path></svg><span style=\"font-size:13px;font-weight:600\">"+esc(ds)+"</span><span style=\"font-size:12px;color:#7b8597\">· "+(S.gameCount||GAMES.length)+" games</span></div>"+
     "<div style=\"display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:10px;background:rgba(53,208,192,.08);border:1px solid rgba(53,208,192,.22)\">"+live+"</div>"+
     "<div style=\"flex:1\"></div>"+
     "<button data-act=\"refresh\" class=\"btnp\" style=\"display:flex;align-items:center;gap:7px;padding:9px 14px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:13px;color:#0a0c11;background:var(--ac)\">"+refreshInner+"</button>"+
@@ -310,7 +310,7 @@ function gameCard(g){
     "<div style=\"padding:0 17px 14px\"><div style=\"font-size:12px;color:#7b8597;padding:9px 12px;border-radius:9px;background:var(--surface2);cursor:pointer\">\u25B8 Advanced tables · "+g.mkts+" player-markets</div></div></div>";
 }
 function viewGames(){
-  var head="<div style=\"margin-bottom:18px\"><div style=\"font-size:11px;letter-spacing:.14em;color:var(--ac);font-weight:700;margin-bottom:6px\">TODAY'S GAMES</div><h1 style=\"margin:0;font-size:28px;font-weight:700;letter-spacing:-.02em\">"+(GAMES.length*7)+"-game slate · 23.6 projected HRs</h1></div>";
+  var head="<div style=\"margin-bottom:18px\"><div style=\"font-size:11px;letter-spacing:.14em;color:var(--ac);font-weight:700;margin-bottom:6px\">TODAY'S GAMES</div><h1 style=\"margin:0;font-size:28px;font-weight:700;letter-spacing:-.02em\">"+((S.gameCount||GAMES.length))+"-game slate · 23.6 projected HRs</h1></div>";
   var filters="<div style=\"display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px\">"+GAME_FILTERS.map(function(f){var on=f===S.gameFilter;return "<span data-act=\"filter\" data-f=\""+esc(f)+"\" class=\"chip\" style=\"font-size:12.5px;font-weight:600;padding:8px 13px;border-radius:9px;background:"+(on?"var(--ac)":"var(--surface)")+";"+(on?"color:#0a0c11":"border:1px solid rgba(255,255,255,.1);color:#9aa3b2")+"\">"+f+"</span>";}).join("")+"</div>";
   return "<div class=\"rise\">"+head+filters+"<div style=\"display:flex;flex-direction:column;gap:14px\">"+GAMES.map(gameCard).join("")+"</div></div>";
 }
