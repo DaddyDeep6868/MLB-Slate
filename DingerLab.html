@@ -1164,6 +1164,57 @@ body.mobile-layout .mobile-slip-fab{ display:inline-flex; align-items:center; }
   body.mobile-layout .mobile-slip{ background:rgba(15,35,30,.98); }
 }
 
+
+/* === v4.49 hide-on-scroll chrome === */
+/* ============================================================
+   v4.49 - Hide top chrome (header + toolbar) on scroll-down,
+   reveal on scroll-up or near top. Mobile only.
+   ============================================================ */
+body.mobile-layout .app-header,
+body.mobile-layout .toolbar{
+  transition:transform .28s cubic-bezier(.4,0,.2,1), opacity .24s ease;
+  will-change:transform;
+}
+body.mobile-layout.dl-chrome-hidden .app-header{ transform:translateY(-120%); }
+body.mobile-layout.dl-chrome-hidden .toolbar{
+  transform:translateY(-120%); opacity:0; pointer-events:none;
+}
+@media (prefers-reduced-motion: reduce){
+  body.mobile-layout .app-header,
+  body.mobile-layout .toolbar{ transition:none; }
+}
+
+
+/* === v4.50 transparent nav + clearance === */
+/* ============================================================
+   v4.50 - Transparent frosted bottom nav + keep page content
+   clear of the fixed bottom navigation. Mobile only.
+   ============================================================ */
+
+/* Transparent, frosted-glass bottom navigation */
+body.mobile-layout .mobile-quickbar{
+  background:color-mix(in srgb, var(--dl-night) 30%, transparent);
+  -webkit-backdrop-filter:blur(22px) saturate(1.4);
+  backdrop-filter:blur(22px) saturate(1.4);
+  border-top:1px solid rgba(237,242,234,.10);
+  box-shadow:0 -8px 24px rgba(0,0,0,.20);
+}
+/* Readable fallback where backdrop-filter is unsupported */
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  body.mobile-layout .mobile-quickbar{
+    background:color-mix(in srgb, var(--dl-night) 90%, transparent);
+  }
+}
+
+/* Give page content room to scroll clear of the fixed bottom nav */
+body.mobile-layout .app-wrap{
+  padding-bottom:calc(128px + env(safe-area-inset-bottom, 0px));
+}
+body.mobile-layout{ scroll-padding-bottom:128px; }
+
+/* Breathing room so the summary pills never jam against the nav/FAB */
+body.mobile-layout .mobile-summary-bar{ margin-bottom:10px; }
+
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 </head>
@@ -1681,8 +1732,8 @@ body.mobile-layout .mobile-slip-fab{ display:inline-flex; align-items:center; }
 <button class="mobile-slip-fab hidden" id="mobileSlipFab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2v20l2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg><span>Open slip</span></button>
 
 <script>
-const APP_VERSION = 'v4.48';
-const APP_UPDATED = 'Updated Jun 20, 2026 — v4.48: Fetch slate now auto-runs the Data Intelligence simulation, and the header version label is trimmed so it no longer stretches the screen.';
+const APP_VERSION = 'v4.50';
+const APP_UPDATED = 'Updated Jun 20, 2026 — v4.50: Bottom navigation is now a transparent frosted-glass bar, and page content keeps clear of it so the summary pills no longer get cut off. Mobile only.';
 {
   const av=document.getElementById('appVersion');
   if(av){ av.textContent=APP_VERSION; av.title=APP_UPDATED; }
@@ -8321,6 +8372,27 @@ function unlockApp(){
 }
 function setupPasswordGate(){ unlockApp(); }
 document.addEventListener('DOMContentLoaded', function(){ unlockApp(); });
+
+/* === v4.49 hide-on-scroll chrome === */
+/* v4.49 hide-on-scroll top chrome (mobile only) */
+(function(){
+  var lastY=0, ticking=false, THRESH=6, TOP=64;
+  function getY(){ return window.pageYOffset || document.documentElement.scrollTop || (document.body&&document.body.scrollTop) || 0; }
+  function update(){
+    ticking=false;
+    var b=document.body; if(!b) return;
+    if(!b.classList.contains('mobile-layout')){ b.classList.remove('dl-chrome-hidden'); return; }
+    var y=getY();
+    if(y<=TOP){ b.classList.remove('dl-chrome-hidden'); lastY=y; return; }
+    if(Math.abs(y-lastY)<THRESH) return;
+    if(y>lastY){ b.classList.add('dl-chrome-hidden'); } else { b.classList.remove('dl-chrome-hidden'); }
+    lastY=y;
+  }
+  function onScroll(){ if(!ticking){ ticking=true; (window.requestAnimationFrame||function(f){setTimeout(f,16);})(update); } }
+  document.addEventListener('scroll', onScroll, {passive:true, capture:true});
+  window.addEventListener('scroll', onScroll, {passive:true});
+})();
+
 </script>
 </body>
 </html>
