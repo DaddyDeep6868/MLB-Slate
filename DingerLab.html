@@ -51,8 +51,8 @@
 <div id="toast"></div>
 <script>
 /* ===================== DingerLab — Stadium Night ===================== */
-var APP_VERSION = "v6.4";
-var APP_UPDATED = "2026-06-21 \u2014 Rebuilt the front end to match the Stadium Night mock end-to-end: all 8 tabs, the player intelligence drawer and the bet slip are now fully interactive.";
+var APP_VERSION = "v6.5";
+var APP_UPDATED = "2026-06-21 \u2014 Live board: Refresh and Load now pull OddsBlaze prices across 4 books, compute no-vig consensus fair odds and best-price EV, and rebuild the players, KPIs, combos, data table and games. Falls back to the seed board when offline.";
 
 var CFG = { backend: "https://mlb-slate.onrender.com" };
 var AC="#ff8a4c", POS="#35d0c0", GOLD="#ffc24d", PINK="#ff5ea8", PURPLE="#a78bfa", WARN="#ff6b6b";
@@ -488,6 +488,40 @@ function loadSlate(){
   }).catch(function(){ toast("Could not reach the MLB schedule feed (offline or blocked)"); S.loading=false; render(); });
 }
 
+function applyBoard(b){
+  if(!b||b.source!=="live") return false;
+  var COL={AC:AC,AC2:AC,POS:POS,GOLD:GOLD,PINK:PINK,PURPLE:PURPLE,WARN:WARN};
+  if(b.players&&Object.keys(b.players).length){
+    Object.keys(b.players).forEach(function(id){ var p=b.players[id];
+      p.fadeColor=COL[p.fadeColor]||p.fadeColor||POS;
+      (p.profile||[]).forEach(function(r){ if(COL[r[3]]) r[3]=COL[r[3]]; });
+    });
+    PLAYERS=b.players;
+  }
+  if(b.starCards&&b.starCards.length) STAR_CARDS=b.starCards.filter(function(id){return PLAYERS[id];});
+  if(b.kpis&&b.kpis.length){ b.kpis.forEach(function(k){ if(k.sc&&COL[k.sc])k.sc=COL[k.sc]; if(k.vc&&COL[k.vc])k.vc=COL[k.vc]; }); KPIS=b.kpis; }
+  if(b.combos) COMBOS=b.combos;
+  if(b.dataRows&&b.dataRows.length) DATAROWS=b.dataRows;
+  if(b.games&&b.games.length){ b.games.forEach(function(g){ (g.players||[]).forEach(function(pp){ if(pp.evc&&COL[pp.evc])pp.evc=COL[pp.evc]; if(!pp.id||!PLAYERS[pp.id])pp.id=null; }); }); GAMES=b.games; }
+  NAMEIDX={}; Object.keys(PLAYERS).forEach(function(id){NAMEIDX[norm(PLAYERS[id].name)]=id;});
+  return true;
+}
+function loadBoard(kind){
+  if(S.loading) return; S.loading=true; render();
+  fetch(CFG.backend+"/api/board?league=mlb",{mode:"cors"}).then(function(r){return r.ok?r.json():null;}).then(function(b){
+    if(b&&b.source==="live"&&b.playCount>0){
+      applyBoard(b); S.oddsLive=true; if(b.games&&b.games.length) S.gameCount=b.games.length;
+      toast("Live board \u00b7 "+b.playCount+" plays from "+((b.booksLive||[]).length)+" books");
+    } else if(b&&b.source==="live"){
+      toast("Backend live but no player props parsed yet \u2014 open /api/oddsblaze/sample to share the shape");
+    } else {
+      toast("Backend reachable but board unavailable \u2014 showing seed board");
+    }
+    S.loading=false; render();
+  }).catch(function(){ S.loading=false; toast("Could not reach backend \u2014 showing seed board"); render(); });
+}
+
+
 /* ===================== EVENTS ===================== */
 document.addEventListener("click",function(e){
   var el=e.target.closest&&e.target.closest("[data-act]"); if(!el) return;
@@ -501,8 +535,8 @@ document.addEventListener("click",function(e){
   else if(a==="bset"){ var k=el.dataset.k, v=el.dataset.v; S.builder[k]=(k==="legs")?(+v):v; render(); }
   else if(a==="build"){ toast("Generated cross plays for a "+S.builder.legs+"-leg "+S.builder.style+" slip"); render(); }
   else if(a==="filter"){ S.gameFilter=el.dataset.f; render(); }
-  else if(a==="refresh"){ refreshOdds(); }
-  else if(a==="load"){ loadSlate(); }
+  else if(a==="refresh"){ loadBoard("odds"); }
+  else if(a==="load"){ loadBoard("slate"); }
   else if(a==="export"){ toast("Preparing "+el.dataset.v+" export…"); }
   else if(a==="saveparlay"){ if(S.slip.length){ toast("Saved parlay to Tracking"); S.tab="track"; render(); } }
   else if(a==="track"){ toast("Sent to Tracking"); }

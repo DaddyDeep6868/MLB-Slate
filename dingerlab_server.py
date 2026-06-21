@@ -144,6 +144,401 @@ def api_oddsblaze():
         return jsonify({"error": str(e), "sportsbook": sportsbook, "league": league}), 502
 
 
+# ===================== LIVE BOARD (OddsBlaze -> model board) =====================
+
+@app.after_request
+def _dl_cors(resp):
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    resp.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+    return resp
+
+
+def _dl_dec(american):
+    try:
+        a = float(american)
+    except Exception:
+        return None
+    if a == 0:
+        return None
+    return 1.0 + (a / 100.0 if a > 0 else 100.0 / (-a))
+
+
+def _dl_imp(american):
+    try:
+        a = float(american)
+    except Exception:
+        return None
+    if a == 0:
+        return None
+    return (100.0 / (a + 100.0)) if a > 0 else ((-a) / ((-a) + 100.0))
+
+
+def _dl_am_from_prob(p):
+    if p is None or p <= 0 or p >= 1:
+        return None
+    if p >= 0.5:
+        return -int(round(100.0 * p / (1.0 - p)))
+    return int(round(100.0 * (1.0 - p) / p))
+
+
+def _dl_fmt_am(a):
+    if a is None:
+        return None
+    a = int(round(a))
+    return ("+" if a > 0 else "") + str(a)
+
+
+def _dl_parse_am(price):
+    if price is None:
+        return None
+    if isinstance(price, (int, float)):
+        return float(price)
+    s = str(price).strip().replace("\u2212", "-")
+    if s.lower() in ("even", "evens", "pk"):
+        return 100.0
+    s = s.replace("+", "")
+    try:
+        return float(s)
+    except Exception:
+        m = re.search(r"-?\d+(?:\.\d+)?", s)
+        return float(m.group(0)) if m else None
+
+
+def _dl_classify(market, line, side):
+    m = (market or "").lower()
+    try:
+        ln = float(line)
+    except Exception:
+        ln = None
+    if "home run" in m or " hr" in (" " + m) or m.strip() in ("hr", "home runs", "player home runs", "to hit a home run"):
+        if ln is None or abs(ln - 0.5) < 0.01:
+            return ("hr", "HR")
+    if "total base" in m or m.strip() in ("tb", "total bases", "player total bases"):
+        if ln is not None and abs(ln - 1.5) < 0.01:
+            return ("tb", "2+ TB")
+    if "hit" in m and "base" not in m and "home" not in m:
+        if ln is not None and abs(ln - 0.5) < 0.01:
+            return ("hits", "1+ Hit")
+        if ln is not None and abs(ln - 1.5) < 0.01:
+            return ("hits2", "2+ Hits")
+    if "rbi" in m or "run batted" in m:
+        if ln is None or abs(ln - 0.5) < 0.01:
+            return ("rbi", "1+ RBI")
+    return (None, None)
+
+
+def _dl_norm_name(s):
+    s = unicodedata.normalize("NFKD", s or "")
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return re.sub(r"[^a-z ]", "", s.lower()).strip()
+
+
+def _dl_team(pl, node):
+    t = None
+    if isinstance(pl, dict):
+        t = pl.get("team")
+    if t is None:
+        t = node.get("team")
+    if isinstance(t, dict):
+        return t.get("abbreviation") or t.get("abbr") or t.get("name")
+    if isinstance(t, str):
+        return t
+    return None
+
+
+def _dl_walk(node, book, out):
+    if isinstance(node, dict):
+        price = node.get("price")
+        if price is None and isinstance(node.get("odds"), (str, int, float)):
+            price = node.get("odds")
+        market = node.get("market") or node.get("market_name") or node.get("bet_type") or node.get("category")
+        sel = node.get("selection")
+        side = None
+        line = None
+        player = None
+        if isinstance(sel, dict):
+            side = sel.get("side") or sel.get("name")
+            line = sel.get("line") if sel.get("line") is not None else sel.get("points")
+        elif isinstance(sel, str):
+            side = sel
+        if side is None:
+            side = node.get("side") or node.get("name")
+        if line is None:
+            line = node.get("line") if node.get("line") is not None else node.get("points")
+        pl = node.get("player")
+        if isinstance(pl, dict):
+            player = pl.get("name")
+        elif isinstance(pl, str):
+            player = pl
+        if player is None:
+            player = node.get("player_name") or node.get("participant")
+        nm = node.get("name")
+        if (side is None or line is None or player is None) and isinstance(nm, str):
+            mm = re.match(r"^(.*?)\s+(Over|Under)\s+([\d.]+)$", nm, re.I)
+            if mm:
+                player = player or mm.group(1).strip()
+                side = side or mm.group(2)
+                line = line if line is not None else mm.group(3)
+        if price is not None and market is not None and player and side:
+            cls, label = _dl_classify(market, line, side)
+            if cls:
+                am = _dl_parse_am(price)
+                sd = str(side).strip().lower()
+                if am is not None and (sd.startswith("o") or sd.startswith("u")):
+                    out.append({"book": book, "cls": cls, "label": label,
+                                "player": str(player).strip(), "side": sd, "am": am,
+                                "team": _dl_team(pl, node)})
+        for v in node.values():
+            if isinstance(v, (dict, list)):
+                _dl_walk(v, book, out)
+    elif isinstance(node, list):
+        for v in node:
+            _dl_walk(v, book, out)
+
+
+def _dl_fetch_book(book, league):
+    key = (os.environ.get("ODDSBLAZE_KEY") or ODDSBLAZE_DEFAULT_KEY).strip()
+    return jget("https://odds.oddsblaze.com/", params={"key": key, "sportsbook": book, "league": league})
+
+
+def _dl_collect(league):
+    legs = []
+    books_ok = []
+    errors = {}
+    for b in sorted(ODDSBLAZE_BOOKS):
+        try:
+            data = _dl_fetch_book(b, league)
+            n0 = len(legs)
+            _dl_walk(data, b, legs)
+            if len(legs) > n0:
+                books_ok.append(b)
+        except Exception as e:
+            errors[b] = str(e)
+    return legs, books_ok, errors
+
+
+def _dl_score(cls, p):
+    if cls == "hr":
+        return max(50, min(97, int(round(55 + p * 190))))
+    return max(45, min(95, int(round(35 + p * 70))))
+
+
+def _dl_build(league="mlb"):
+    legs, books_ok, errors = _dl_collect(league)
+    groups = {}
+    for lg in legs:
+        k = (_dl_norm_name(lg["player"]), lg["cls"])
+        g = groups.setdefault(k, {"player": lg["player"], "cls": lg["cls"], "label": lg["label"],
+                                  "team": lg.get("team"), "over": {}, "under": {}})
+        if g.get("team") is None and lg.get("team"):
+            g["team"] = lg.get("team")
+        slot = g["over"] if lg["side"].startswith("o") else g["under"]
+        dec = _dl_dec(lg["am"])
+        if dec is None:
+            continue
+        cur = slot.get(lg["book"])
+        if cur is None or dec > _dl_dec(cur):
+            slot[lg["book"]] = lg["am"]
+    plays = []
+    for (nm, cls), g in groups.items():
+        over = g["over"]
+        if not over:
+            continue
+        best_book = None
+        best_am = None
+        best_dec = -1.0
+        for bk, am in over.items():
+            d = _dl_dec(am)
+            if d and d > best_dec:
+                best_dec = d
+                best_am = am
+                best_book = bk
+        fairs = []
+        for bk, am in over.items():
+            io = _dl_imp(am)
+            if io is None:
+                continue
+            u = g["under"].get(bk)
+            if u is not None:
+                iu = _dl_imp(u)
+                if iu and (io + iu) > 0:
+                    fairs.append(io / (io + iu))
+                    continue
+            fairs.append(io)
+        if not fairs:
+            continue
+        fair = sum(fairs) / len(fairs)
+        ev = fair * best_dec - 1.0
+        imp_best = _dl_imp(best_am) or 0.0
+        plays.append({"player": g["player"], "team": g.get("team"), "norm": nm, "cls": cls, "label": g["label"],
+                      "fair": fair, "bestAm": best_am, "bestBook": best_book, "fairAm": _dl_am_from_prob(fair),
+                      "ev": ev, "edge": (fair - imp_best), "books": len(over),
+                      "score": _dl_score(cls, fair)})
+    return plays, books_ok, errors
+
+
+def _dl_mkid(nm):
+    return (re.sub(r"[^a-z0-9]", "", _dl_norm_name(nm).replace(" ", ""))[:18]) or "p"
+
+
+def _dl_board(league="mlb"):
+    plays, books_ok, errors = _dl_build(league)
+    by_player = {}
+    for p in plays:
+        by_player.setdefault(p["norm"], []).append(p)
+    prim_list = []
+    players = {}
+    for nm, lst in by_player.items():
+        hr = next((x for x in lst if x["cls"] == "hr"), None)
+        prim = hr or max(lst, key=lambda x: x["ev"])
+        pid = _dl_mkid(prim["player"])
+        rank = {"hr": 3, "tb": 2, "hits2": 1, "hits": 1, "rbi": 0}
+        mkts = []
+        for x in sorted(lst, key=lambda x: (-rank.get(x["cls"], 0), -x["ev"])):
+            kind = "hot" if x["cls"] == "hr" else ("pos" if x["ev"] > 0 else "plain")
+            mkts.append({"label": x["label"], "odds": _dl_fmt_am(x["bestAm"]), "kind": kind, "prob": round(x["fair"], 4)})
+        evp = prim["ev"] * 100.0
+        score = prim["score"]
+        fade = "Low" if score >= 80 else ("Med" if score >= 68 else "High")
+        bb = (prim["bestBook"] or "").title()
+        players[pid] = {
+            "id": pid, "name": prim["player"], "line": (prim["team"] or "") + (" \u00b7 " + bb if bb else ""),
+            "sub": prim["label"] + " \u00b7 best " + (_dl_fmt_am(prim["bestAm"]) or "") + (" @ " + bb if bb else ""),
+            "score": score, "stars": max(1, min(5, int(round(score / 20.0)))),
+            "model": ("%.1f%%" % (prim["fair"] * 100)), "best": _dl_fmt_am(prim["bestAm"]),
+            "ev": (("+" if evp >= 0 else "") + ("%.1f%%" % evp)),
+            "dueLabel": "Live market", "duePct": ("%d%%" % int(round(prim["fair"] * 100))),
+            "dnaClass": "Market-implied", "batSpeed": "n/a",
+            "impact": ("A+" if score >= 85 else ("A" if score >= 78 else "B")), "launch": "n/a",
+            "fade": fade, "fadeColor": "POS",
+            "tags": ([{"t": "EV+", "c": "pos"}] if prim["ev"] > 0 else []) + ([{"t": "Power", "c": "orange"}] if prim["cls"] == "hr" else []),
+            "markets": mkts,
+            "profile": [["Market edge", max(0, min(100, int(round(50 + evp * 3)))), ("%+.1f%%" % evp), "AC"],
+                        ["Fair prob", int(round(prim["fair"] * 100)), ("%d%%" % int(round(prim["fair"] * 100))), "POS"],
+                        ["Book coverage", min(100, prim["books"] * 25), str(prim["books"]) + " books", "AC"]],
+            "reasons": ["Best price " + (_dl_fmt_am(prim["bestAm"]) or "") + (" at " + bb if bb else ""),
+                        "No-vig fair " + (_dl_fmt_am(prim["fairAm"]) or "") + " = " + ("%.1f%%" % (prim["fair"] * 100)) + " implied",
+                        ("Positive EV vs %d-book consensus" % prim["books"]) if prim["ev"] > 0 else "Priced near fair value"],
+            "risks": ["Lineups, weather and park not modeled here", "Edge assumes book consensus is the true price"],
+        }
+        prim["pid"] = pid
+        prim_list.append(prim)
+    prim_list.sort(key=lambda x: -x["score"])
+    star_cards = [p["pid"] for p in prim_list[:4]]
+    data_rows = []
+    for p in prim_list[:40]:
+        data_rows.append([p["player"], p["label"], ("%.1f" % (p["fair"] * 100)), _dl_fmt_am(p["fairAm"]) or "",
+                          _dl_fmt_am(p["bestAm"]) or "", ("%+.1f" % (p["edge"] * 100)), ("%+.1f" % (p["ev"] * 100)),
+                          str(p["score"]), "Live", ("Low" if p["score"] >= 80 else ("Med" if p["score"] >= 68 else "High"))])
+    hr_plays = [p for p in plays if p["cls"] == "hr"]
+    proj_hr = sum(p["fair"] for p in hr_plays)
+    top = prim_list[0] if prim_list else None
+    beste = max(plays, key=lambda x: x["ev"]) if plays else None
+    kpis = [
+        {"k": "PROJECTED HRs", "v": ("%.1f" % proj_hr), "s": (str(len(hr_plays)) + " HR markets"), "sc": "POS"},
+        {"k": "PLAYS ON BOARD", "v": str(len(plays)), "s": "live markets"},
+        {"k": "TOP DINGER SCORE", "v": (str(top["score"]) if top else "-"), "s": ((top["player"] + " \u00b7 " + top["label"]) if top else ""), "vc": "AC"},
+        {"k": "BEST EV", "v": (("%+.1f%%" % (beste["ev"] * 100)) if beste else "-"), "s": ((beste["player"] + " " + beste["label"]) if beste else ""), "vc": "POS"},
+        {"k": "BOOKS LIVE", "v": str(len(books_ok)), "s": (", ".join(b.title() for b in books_ok) or "none")},
+    ]
+    ranked = sorted([p for p in plays if p["ev"] > 0], key=lambda x: -x["ev"])
+    combos = []
+    if len(ranked) >= 2:
+        a, b = ranked[0], ranked[1]
+        dec = _dl_dec(a["bestAm"]) * _dl_dec(b["bestAm"])
+        prob = a["fair"] * b["fair"]
+        combos.append({"title": "Top EV pair", "sub": "2 legs \u00b7 live", "odds": _dl_fmt_am(_dl_am_from_prob(1.0 / dec)),
+                       "ev": ("EV %+.1f%%" % ((prob * dec - 1) * 100)),
+                       "legs": [[a["player"] + " \u2014 " + a["label"], _dl_fmt_am(a["bestAm"])],
+                                [b["player"] + " \u2014 " + b["label"], _dl_fmt_am(b["bestAm"])]],
+                       "win": ("%.1f%%" % (prob * 100)), "edge": ("%+.1f" % ((prob * dec - 1) * 100)), "kelly": "-"})
+    if len(ranked) >= 5:
+        l3 = ranked[2:5]
+        dec = 1.0
+        prob = 1.0
+        for x in l3:
+            dec *= _dl_dec(x["bestAm"])
+            prob *= x["fair"]
+        combos.append({"title": "Sweet-spot 3-leg", "sub": "3 legs \u00b7 live", "odds": _dl_fmt_am(_dl_am_from_prob(1.0 / dec)),
+                       "ev": ("EV %+.1f%%" % ((prob * dec - 1) * 100)),
+                       "legs": [[x["player"] + " \u2014 " + x["label"], _dl_fmt_am(x["bestAm"])] for x in l3],
+                       "win": ("%.1f%%" % (prob * 100)), "edge": ("%+.1f" % ((prob * dec - 1) * 100)), "kelly": "-"})
+    games = []
+    try:
+        d = datetime.utcnow().strftime("%Y-%m-%d")
+        sch = jget("https://statsapi.mlb.com/api/v1/schedule", params={"sportId": 1, "date": d})
+        from datetime import timedelta
+        for dd in sch.get("dates", []):
+            for g in dd.get("games", []):
+                home_t = (((g.get("teams") or {}).get("home") or {}).get("team") or {})
+                away_t = (((g.get("teams") or {}).get("away") or {}).get("team") or {})
+                home = (home_t.get("abbreviation") or home_t.get("name") or "")
+                away = (away_t.get("abbreviation") or away_t.get("name") or "")
+                venue = (g.get("venue") or {}).get("name", "")
+                tm = ""
+                try:
+                    gd = g.get("gameDate")
+                    if gd:
+                        dt = datetime.strptime(gd, "%Y-%m-%dT%H:%M:%SZ") - timedelta(hours=4)
+                        tm = dt.strftime("%I:%M %p ET").lstrip("0")
+                except Exception:
+                    tm = ""
+                ha = home[:3].upper()
+                aa = away[:3].upper()
+                gp = []
+                for p in prim_list:
+                    tt = (p.get("team") or "")[:3].upper()
+                    if tt and tt in (ha, aa):
+                        gp.append({"id": p["pid"], "name": p["player"], "score": p["score"],
+                                   "stars": max(1, min(5, int(round(p["score"] / 20.0)))), "mkt": p["label"],
+                                   "odds": _dl_fmt_am(p["bestAm"]), "ev": ("%+.1f%%" % (p["ev"] * 100)),
+                                   "evc": ("POS" if p["ev"] > 0 else "WARN")})
+                gp.sort(key=lambda x: -x["score"])
+                games.append({"away": aa, "home": ha, "time": tm, "park": venue, "proj": "",
+                              "parkPct": "", "wind": "", "mkts": len(gp), "players": gp[:6]})
+    except Exception as e:
+        errors["schedule"] = str(e)
+    return {"source": "live", "generatedAt": datetime.utcnow().isoformat() + "Z", "league": league,
+            "booksLive": books_ok, "errors": errors, "playCount": len(plays), "players": players,
+            "starCards": star_cards, "kpis": kpis, "combos": combos, "dataRows": data_rows, "games": games}
+
+
+@app.get("/api/board")
+def api_board():
+    league = (request.args.get("league") or "mlb").strip().lower()
+    try:
+        return jsonify(_dl_board(league))
+    except Exception as e:
+        return jsonify({"source": "error", "error": str(e)}), 502
+
+
+@app.get("/api/oddsblaze/sample")
+def api_oddsblaze_sample():
+    book = (request.args.get("sportsbook") or "draftkings").strip().lower()
+    league = (request.args.get("league") or "mlb").strip().lower()
+    if book not in ODDSBLAZE_BOOKS:
+        return jsonify({"error": "unsupported sportsbook", "books": sorted(ODDSBLAZE_BOOKS)}), 400
+    try:
+        data = _dl_fetch_book(book, league)
+        legs = []
+        _dl_walk(data, book, legs)
+
+        def preview(o, depth=0):
+            if depth > 3:
+                return type(o).__name__
+            if isinstance(o, dict):
+                return {k: preview(v, depth + 1) for k, v in list(o.items())[:12]}
+            if isinstance(o, list):
+                return ["list[" + str(len(o)) + "]"] + ([preview(o[0], depth + 1)] if o else [])
+            return type(o).__name__
+
+        return jsonify({"detectedLegs": len(legs), "sampleLegs": legs[:15], "shape": preview(data)})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+
 def jget(url, **kwargs):
     r = requests.get(url, timeout=30, headers={"user-agent": "DingerLab server sync"}, **kwargs)
     r.raise_for_status()
