@@ -51,8 +51,8 @@
 <div id="toast"></div>
 <script>
 /* ===================== DingerLab — Stadium Night ===================== */
-var APP_VERSION = "v7.0";
-var APP_UPDATED = "v7.0 — Research, Tracking, Tools and Live now run on live data";
+var APP_VERSION = "v7.1";
+var APP_UPDATED = "v7.1 — Tracking now persists parlays to the server and reflects the auto-grader results";
 
 var CFG = { backend: "https://mlb-slate.onrender.com" };
 var AC="#ff8a4c", POS="#35d0c0", GOLD="#ffc24d", PINK="#ff5ea8", PURPLE="#a78bfa", WARN="#ff6b6b";
@@ -369,6 +369,7 @@ function genBuilds(){
       ev:"EV "+(ev>=0?"+":"\u2212")+Math.abs(ev*100).toFixed(1)+"%",
       evc:(ev>=0?POS:WARN),
       legs:legs.map(function(l){return [l.name+" \u2014 "+l.label, l.odds];}),
+      rawLegs:legs.map(function(l){return {id:l.id,name:l.name,label:l.label,odds:l.odds,prob:l.prob};}),
       win:(win*100).toFixed(1)+"%",
       edge:(avgEdge>=0?"+":"\u2212")+Math.abs(avgEdge).toFixed(1),
       edgec:(avgEdge>=0?POS:WARN),
@@ -576,6 +577,51 @@ function loadBoard(kind){
 
 
 /* ===================== EVENTS ===================== */
+function dlMkCode(label){
+  var s=String(label||"").toLowerCase();
+  if(s==="hr"||/home\s*run/.test(s)) return "hr";
+  if(/2\+?\s*hit/.test(s)) return "hits2";
+  if(/tb|total\s*bas/.test(s)) return "tb";
+  if(/rbi/.test(s)) return "rbi";
+  if(/hit/.test(s)) return "hits";
+  return "hr";
+}
+function dlNowMs(){ return Date.now(); }
+function dlDec(am){ var a=parseAm(am); if(a==null||a===0) return 1; return a>0?(1+a/100):(1+100/(-a)); }
+function dlLegData(legs){
+  return (legs||[]).map(function(l){
+    var pp=(l.id&&typeof PLAYERS!=="undefined"&&PLAYERS)?PLAYERS[l.id]:null;
+    return { player:(l.name||""), mk:dlMkCode(l.market||l.label||"hr"), gamePk:(l.gamePk!=null?l.gamePk:(pp&&pp.gamePk!=null?pp.gamePk:null)), date:(l.date||(pp&&pp.mlbDate)||null), american:String(l.american||l.odds||""), prob:(l.prob!=null?l.prob:null), hit:null };
+  });
+}
+function dlMapSaved(list){
+  return (list||[]).slice().sort(function(a,b){return (b.savedAt||0)-(a.savedAt||0);}).map(function(p){
+    var res=(p.result||"pending");
+    var st=res==="win"?"WON":(res==="loss"?"LOST":"PENDING");
+    var stc=res==="win"?POS:(res==="loss"?WARN:GOLD);
+    var stbg=res==="win"?"rgba(53,208,192,.14)":(res==="loss"?"rgba(255,107,107,.14)":"rgba(255,194,77,.14)");
+    var legs=p.legData||[];
+    var done=legs.filter(function(l){return l.hit!=null;}).length;
+    var title=p.title||legs.map(function(l){return (l.player||"")+(l.mk?" \u2014 "+String(l.mk).toUpperCase():"");}).join(" \u00b7 ");
+    var stake=(p.stake!=null?(+p.stake||0):0);
+    var when=p.gradedAt?"graded":(res==="pending"?(done+"/"+legs.length+" final"):"saved");
+    var profit=res==="win"?(stake*(dlDec(p.odds)-1)):(res==="loss"?-stake:0);
+    var clvNum=(p.clv!=null?(+p.clv):null);
+    return { st:st, stc:stc, stbg:stbg, t:title, d:(legs.length+" legs \u00b7 $"+stake+" \u00b7 "+when), clv:(clvNum!=null?("CLV "+(clvNum>=0?"+":"")+clvNum.toFixed(1)):null), clvc:(clvNum!=null&&clvNum>=0?POS:"#7b8597"), clvbg:"rgba(53,208,192,.13)", odds:String(p.odds||""), oddsc:AC, sub:(p.sub||(res==="pending"?"awaiting final":res)), result:res, stakeNum:stake, profitNum:profit, clvNum:clvNum };
+  });
+}
+function dlSync(opts){
+  opts=opts||{};
+  if(typeof CFG==="undefined"||!CFG||!CFG.backend) return;
+  fetch(CFG.backend+"/api/state",{method:"GET",mode:"cors"}).then(function(r){return r.ok?r.json():null;}).then(function(stt){
+    if(stt&&stt.savedParlays){ SAVED=dlMapSaved(stt.savedParlays); render(); }
+    if(opts.grade){ fetch(CFG.backend+"/api/grade",{method:"POST",mode:"cors",headers:{"Content-Type":"application/json"},body:"{}"}).then(function(r){return r.ok?r.json():null;}).then(function(g){ if(g&&g.state&&g.state.savedParlays){ SAVED=dlMapSaved(g.state.savedParlays); render(); } }).catch(function(){}); }
+  }).catch(function(){});
+}
+function dlPersist(parlay){
+  if(typeof CFG==="undefined"||!CFG||!CFG.backend) return;
+  fetch(CFG.backend+"/api/state",{method:"POST",mode:"cors",headers:{"Content-Type":"application/json"},body:JSON.stringify({savedParlays:[parlay]})}).then(function(r){return r.ok?r.json():null;}).then(function(res){ if(res&&res.state&&res.state.savedParlays){ SAVED=dlMapSaved(res.state.savedParlays); render(); } }).catch(function(){});
+}
 function loadLive(){
   if(S.liveLoading) return;
   S.liveLoading=true;
@@ -597,21 +643,20 @@ function loadLive(){
   }).catch(function(){ S.liveLoading=false; LIVE_META="Could not reach live feed"; render(); });
 }
 function computeTrackKpis(){
-  var graded=SAVED.filter(function(p){return p.st==="WON"||p.st==="LOST";});
-  var wins=graded.filter(function(p){return p.st==="WON";}).length;
-  var losses=graded.filter(function(p){return p.st==="LOST";}).length;
-  function num(x){ var m=String(x==null?"":x).replace(/[−]/g,"-").match(/-?[0-9]+([.][0-9]+)?/); return m?parseFloat(m[0]):null; }
-  var clvs=[]; SAVED.forEach(function(p){ if(p.clv!=null){ var v=num(p.clv); if(v!==null) clvs.push(v); } });
+  var graded=SAVED.filter(function(p){return p.result==="win"||p.result==="loss"||p.st==="WON"||p.st==="LOST";});
+  var wins=graded.filter(function(p){return p.result==="win"||p.st==="WON";}).length;
+  var losses=graded.filter(function(p){return p.result==="loss"||p.st==="LOST";}).length;
+  var clvs=[]; SAVED.forEach(function(p){ if(p.clvNum!=null) clvs.push(p.clvNum); });
   var beat=clvs.length?Math.round(clvs.filter(function(v){return v>0;}).length/clvs.length*100):null;
   var avg=clvs.length?(clvs.reduce(function(a,b){return a+b;},0)/clvs.length):null;
-  var stake=0, profit=0, settled=0;
-  graded.forEach(function(p){ var s=num(p.d); if(s!==null) stake+=s; if(/[$]/.test(String(p.odds))){ var pr=num(p.odds); if(pr!==null){ profit+=pr; settled++; } } });
-  var roi=(settled&&stake)?(profit/stake*100):null;
-  var em="—";
+  var stake=0, profit=0;
+  graded.forEach(function(p){ stake+=(p.stakeNum||0); profit+=(p.profitNum||0); });
+  var roi=(stake)?(profit/stake*100):null;
+  var em="\u2014";
   return [
-    {k:"BEAT THE CLOSE",v:(beat===null?em:beat+"%"),s:(clvs.length?clvs.length+" graded legs":"awaiting graded legs"),vc:(beat!==null&&beat>=50?POS:null)},
-    {k:"AVG CLV",v:(avg===null?em:(avg>=0?"+":"")+avg.toFixed(1)),s:"prob points",vc:(avg!==null&&avg>=0?POS:null)},
-    {k:"RECORD",v:(graded.length?wins+"–"+losses:em),s:(graded.length?"graded parlays":"no graded parlays yet")},
+    {k:"BEAT THE CLOSE",v:(beat===null?em:beat+"%"),s:(clvs.length?clvs.length+" graded legs":"closing line not captured"),vc:(beat!==null&&beat>=50?POS:null)},
+    {k:"AVG CLV",v:(avg===null?em:(avg>=0?"+":"")+avg.toFixed(1)),s:(clvs.length?"prob points":"closing line not captured"),vc:(avg!==null&&avg>=0?POS:null)},
+    {k:"RECORD",v:(graded.length?wins+"\u2013"+losses:em),s:(graded.length?"graded parlays":"no graded parlays yet")},
     {k:"ROI",v:(roi===null?em:(roi>=0?"+":"")+roi.toFixed(1)+"%"),s:(stake?"on $"+Math.round(stake)+" staked":"on $0 staked"),vc:(roi!==null&&roi>=0?POS:null)}
   ];
 }
@@ -629,10 +674,10 @@ function exportFeatureStore(){
 document.addEventListener("click",function(e){
   var el=e.target.closest&&e.target.closest("[data-act]"); if(!el) return;
   var a=el.dataset.act;
-  if(a==="tab"){ S.tab=el.dataset.tab; S.drawer=null; render(); }
+  if(a==="tab"){ S.tab=el.dataset.tab; S.drawer=null; if(S.tab==="track") dlSync({grade:true}); render(); }
   else if(a==="player"){ var p=PLAYERS[el.dataset.player]; if(p){ S.drawer=p; render(); } }
   else if(a==="closeDrawer"){ if(e.target!==el && a==="closeDrawer" && el.tagName!=="BUTTON" && e.target.closest("[data-act=closeDrawer]")!==el){} S.drawer=null; render(); }
-  else if(a==="addLeg"){ S.slip.push({name:el.dataset.name,market:el.dataset.market,book:"Best",american:el.dataset.odds,prob:parseFloat(el.dataset.prob)}); S.drawer=null; toast("Added "+el.dataset.name+" to slip"); render(); }
+  else if(a==="addLeg"){ var dp=S.drawer||{}; S.slip.push({name:el.dataset.name,market:el.dataset.market,mk:dlMkCode(el.dataset.market),id:(dp&&dp.id)||null,gamePk:(dp&&dp.gamePk!=null)?dp.gamePk:null,date:(dp&&dp.mlbDate)||null,book:"Best",american:el.dataset.odds,prob:parseFloat(el.dataset.prob)}); S.drawer=null; toast("Added "+el.dataset.name+" to slip"); render(); }
   else if(a==="rmLeg"){ S.slip.splice(+el.dataset.i,1); render(); }
   else if(a==="slipcombo"){ var b=CURBUILDS[+el.dataset.i]; if(b){ b.legs.forEach(function(l){ var nm=l[0].split(" — ")[0]; var mk=l[0].split(" — ")[1]||"HR"; S.slip.push({name:nm,market:mk,book:"Best",american:l[1],prob:impliedFromAm(parseAm(l[1]))}); }); toast("Added "+b.legs.length+"-leg combo to slip"); render(); } }
   else if(a==="bset"){ var k=el.dataset.k, v=el.dataset.v; S.builder[k]=(k==="legs")?(+v):v; render(); }
@@ -641,8 +686,8 @@ document.addEventListener("click",function(e){
   else if(a==="refresh"){ loadBoard("odds"); }
   else if(a==="load"){ loadBoard("slate"); }
   else if(a==="export"){ toast("Preparing "+el.dataset.v+" export…"); }
-  else if(a==="saveparlay"){ if(S.slip.length){ toast("Saved parlay to Tracking"); S.tab="track"; render(); } }
-  else if(a==="track"){ toast("Sent to Tracking"); } else if(a==="trackcombo"){ var b=CURBUILDS[+el.dataset.i]; if(b){ SAVED.unshift({st:"PENDING",stc:GOLD,stbg:"rgba(255,194,77,.14)",t:b.legs.map(function(l){return l[0];}).join(" \u00b7 "),d:b.legs.length+" legs \u00b7 $"+S.stake+" \u00b7 just now",clv:"CLV +0.0",clvc:POS,clvbg:"rgba(53,208,192,.13)",odds:b.odds,oddsc:AC,sub:b.win+" win \u00b7 "+b.ev}); toast("Saved "+b.legs.length+"-leg parlay to Tracking"); S.tab="track"; render(); } }
+  else if(a==="saveparlay"){ if(S.slip.length){ var rc=recompute(); var pl={id:"p"+dlNowMs()+"_"+Math.floor(Math.random()*1e4),savedAt:dlNowMs(),result:"pending",stake:S.stake,odds:fmtAm(decToAm(rc.dec)),sub:((rc.prob*100).toFixed(1)+"% win"),title:S.slip.map(function(l){return l.name+" \u2014 "+l.market;}).join(" \u00b7 "),legData:dlLegData(S.slip)}; try{SAVED.unshift(dlMapSaved([pl])[0]);}catch(e){} dlPersist(pl); toast("Saved parlay to Tracking"); S.tab="track"; render(); } }
+  else if(a==="track"){ toast("Sent to Tracking"); } else if(a==="trackcombo"){ var b=CURBUILDS[+el.dataset.i]; if(b){ var rl=b.rawLegs||(b.legs||[]).map(function(l){var nm=String(l[0]).split(" \u2014 ")[0];var lb=String(l[0]).split(" \u2014 ")[1]||"HR";return {name:nm,label:lb,odds:l[1]};}); var parlay={id:"p"+dlNowMs()+"_"+Math.floor(Math.random()*1e4),savedAt:dlNowMs(),result:"pending",stake:S.stake,odds:b.odds,sub:(b.win+" win \u00b7 "+b.ev),title:(b.legs||[]).map(function(l){return l[0];}).join(" \u00b7 "),legData:dlLegData(rl)}; try{SAVED.unshift(dlMapSaved([parlay])[0]);}catch(e){} dlPersist(parlay); toast("Saved "+b.legs.length+"-leg parlay to Tracking"); S.tab="track"; render(); } }
   else if(a==="toolcard"){ toast(el.dataset.v); }
 });
 document.addEventListener("input",function(e){

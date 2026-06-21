@@ -506,6 +506,11 @@ def _dl_board(league="mlb"):
                                    "evc": ("POS" if p["ev"] > 0 else "WARN")})
                 gp.sort(key=lambda x: -x["score"])
                 pk = g.get("gamePk")
+                for _pp in prim_list:
+                    _tt = (_pp.get("team") or "")[:3].upper()
+                    if _tt and _tt in (ha, aa) and _pp.get("pid") in players:
+                        players[_pp["pid"]]["gamePk"] = pk
+                        players[_pp["pid"]]["mlbDate"] = d
                 stt = (g.get("status") or {})
                 state = stt.get("abstractGameState") or ""
                 detailed = stt.get("detailedState") or ""
@@ -649,10 +654,12 @@ def live_feed_hr_ids(game_pk):
     return ids
 
 
-def leg_hit(leg, stats, hr_ids):
+def leg_hit(leg, stats, hr_ids, named=None):
     mk = leg.get("mk") or "hr"
     pid = str(leg.get("mlbId")) if leg.get("mlbId") is not None else None
     st = stats.get(pid) if pid else None
+    if st is None and named:
+        st = _lookup_name(named, leg.get("player") or leg.get("name") or "")
     if mk == "hr":
         if pid and pid in hr_ids:
             return True, "live_feed_hr"
@@ -684,7 +691,7 @@ def perform_grade():
             if l.get("gamePk"):
                 pks.add(str(l.get("gamePk")))
     status = final_status_by_game(dates)
-    boxes, hr_sets = {}, {}
+    boxes, hr_sets, named_boxes = {}, {}, {}
     for pk in sorted(pks):
         if status.get(pk) != "Final":
             continue
@@ -693,6 +700,11 @@ def perform_grade():
         except Exception as e:
             print("boxscore error", pk, e)
             boxes[pk] = {}
+        try:
+            named_boxes[pk] = boxscore_stats_named(pk)
+        except Exception as e:
+            print("boxscore(named) error", pk, e)
+            named_boxes[pk] = {}
         try:
             hr_sets[pk] = live_feed_hr_ids(pk)
         except Exception as e:
@@ -710,7 +722,7 @@ def perform_grade():
                 if status.get(pk) != "Final":
                     ready = False
                     continue
-                hit, source = leg_hit(l, boxes.get(pk) or {}, hr_sets.get(pk) or set())
+                hit, source = leg_hit(l, boxes.get(pk) or {}, hr_sets.get(pk) or set(), named_boxes.get(pk) or {})
                 if hit is None:
                     ready = False
                     continue
