@@ -381,6 +381,7 @@ def _dl_build(league="mlb"):
                       "fair": fair, "bestAm": best_am, "bestBook": best_book, "fairAm": _dl_am_from_prob(fair),
                       "ev": ev, "edge": (fair - imp_best), "books": len(over),
                       "reliable": reliable, "twoSided": two_sided,
+                      "over": dict(over),
                       "score": _dl_score(cls, fair)})
     return plays, books_ok, errors
 
@@ -473,6 +474,7 @@ def _dl_board(league="mlb"):
                        "legs": [[x["player"] + " \u2014 " + x["label"], _dl_fmt_am(x["bestAm"])] for x in l3],
                        "win": ("%.1f%%" % (prob * 100)), "edge": ("%+.1f" % ((prob * dec - 1) * 100)), "kelly": "-"})
     games = []
+    feed = []
     try:
         d = datetime.utcnow().strftime("%Y-%m-%d")
         sch = jget("https://statsapi.mlb.com/api/v1/schedule", params={"sportId": 1, "date": d})
@@ -503,13 +505,52 @@ def _dl_board(league="mlb"):
                                    "odds": _dl_fmt_am(p["bestAm"]), "ev": ("%+.1f%%" % (p["ev"] * 100)),
                                    "evc": ("POS" if p["ev"] > 0 else "WARN")})
                 gp.sort(key=lambda x: -x["score"])
+                pk = g.get("gamePk")
+                stt = (g.get("status") or {})
+                state = stt.get("abstractGameState") or ""
+                detailed = stt.get("detailedState") or ""
+                hp = (((g.get("teams") or {}).get("home") or {}).get("probablePitcher") or {}).get("fullName", "")
+                apr = (((g.get("teams") or {}).get("away") or {}).get("probablePitcher") or {}).get("fullName", "")
+                your = any(x.get("id") for x in gp[:6])
                 games.append({"away": aa, "home": ha, "time": tm, "park": venue, "proj": "",
-                              "parkPct": "", "wind": "", "mkts": len(gp), "players": gp[:6]})
+                              "parkPct": "", "wind": "", "mkts": len(gp), "players": gp[:6],
+                              "pk": pk, "state": state})
+                matchup = aa + " vs " + ha
+                if state == "Final":
+                    feed.append({"ic": "🏁", "t": "Final — " + matchup, "d": (detailed or "Final") + " · " + str(len(gp)) + " props tracked", "your": your, "time": tm})
+                elif state == "Live":
+                    feed.append({"ic": "🔴", "t": "Live — " + matchup, "d": (detailed or "In progress") + " · " + str(len(gp)) + " props on board", "your": your, "time": tm})
+                else:
+                    feed.append({"ic": "📋", "t": "Scheduled — " + matchup, "d": ((apr or "TBD") + " vs " + (hp or "TBD")) + " · " + (tm or "TBD"), "your": your, "time": tm})
     except Exception as e:
         errors["schedule"] = str(e)
+    steam = []
+    try:
+        for _p in plays:
+            _ov = _p.get("over") or {}
+            if len(_ov) < 2:
+                continue
+            _ios = []
+            for _bk, _am in _ov.items():
+                _io = _dl_imp(_am)
+                if _io:
+                    _ios.append((_bk, _io))
+            if len(_ios) < 2:
+                continue
+            _ios.sort(key=lambda x: x[1])
+            _best_bk, _best_io = _ios[0]
+            _cons = sum(x[1] for x in _ios) / len(_ios)
+            _edge = (_cons - _best_io) * 100
+            if _edge >= 0.4:
+                steam.append({"t": _p["player"] + " — " + _p["label"], "tag": "value", "tagc": "POS", "tagbg": "rgba(53,208,192,.14)", "bd": "rgba(255,255,255,.07)", "edgePts": round(_edge, 1), "d": _best_bk.title() + ' best at <b style="color:#eef1f6">' + _dl_fmt_am(_p["bestAm"]) + '</b> vs a ' + ('%.0f%%' % (_cons * 100)) + ' consensus — ' + ('%.1f' % _edge) + '-pt edge to the lagging book.'})
+        steam.sort(key=lambda x: -x["edgePts"])
+        steam = steam[:4]
+    except Exception as _e:
+        errors["steam"] = str(_e)
     return {"source": "live", "generatedAt": datetime.utcnow().isoformat() + "Z", "league": league,
             "booksLive": books_ok, "errors": errors, "playCount": len(plays), "players": players,
-            "starCards": star_cards, "kpis": kpis, "combos": combos, "dataRows": data_rows, "games": games}
+            "starCards": star_cards, "kpis": kpis, "combos": combos, "dataRows": data_rows, "games": games,
+            "steam": steam, "feed": feed}
 
 
 @app.get("/api/board")
@@ -2092,6 +2133,81 @@ def start_background_worker():
 
 _load_persisted_tw_tokens()
 start_background_worker()
+
+
+def _dl_live_events(game_pk):
+    out = []
+    total = 0
+    hs = 0
+    as_ = 0
+    try:
+        feed = jget("https://statsapi.mlb.com/api/v1.1/game/%s/feed/live" % game_pk)
+        ls = (((feed.get("liveData") or {}).get("linescore") or {}).get("teams") or {})
+        hs = (((ls.get("home") or {}).get("runs")) or 0)
+        as_ = (((ls.get("away") or {}).get("runs")) or 0)
+        allplays = (((feed.get("liveData") or {}).get("plays") or {}).get("allPlays") or [])
+        for pl in allplays:
+            res = (pl.get("result") or {})
+            if (res.get("eventType") or "") != "home_run":
+                continue
+            total += 1
+            ab = (pl.get("about") or {})
+            half = (ab.get("halfInning") or "")
+            inning = ab.get("inning") or ""
+            hb = ("T" if half == "top" else "B") + str(inning)
+            rbi = res.get("rbi") or 1
+            kind = {1: "solo HR", 2: "2-run HR", 3: "3-run HR", 4: "grand slam"}.get(rbi, str(rbi) + "-run HR")
+            bat = (((pl.get("matchup") or {}).get("batter") or {}))
+            name = bat.get("fullName") or ""
+            mlb_id = bat.get("id")
+            ev = ""
+            dist = ""
+            for pe in (pl.get("playEvents") or []):
+                hd = (pe.get("hitData") or {})
+                if hd.get("launchSpeed"):
+                    ev = "%.1f mph" % hd["launchSpeed"]
+                if hd.get("totalDistance"):
+                    dist = "%d ft" % int(hd["totalDistance"])
+            bits = [b for b in [ev, dist] if b]
+            out.append({"name": name, "mlbId": mlb_id, "half": hb, "kind": kind, "sub": " · ".join(bits)})
+    except Exception:
+        pass
+    return out, total, hs, as_
+
+
+@app.get("/api/live")
+def api_live():
+    out = {"source": "live", "generatedAt": datetime.utcnow().isoformat() + "Z", "events": [], "gamesLive": 0, "slateHrs": 0, "errors": {}}
+    try:
+        d = datetime.utcnow().strftime("%Y-%m-%d")
+        sch = jget("https://statsapi.mlb.com/api/v1/schedule", params={"sportId": 1, "date": d})
+        games_live = 0
+        slate_hrs = 0
+        events = []
+        for dd in sch.get("dates", []):
+            for g in dd.get("games", []):
+                state = ((g.get("status") or {}).get("abstractGameState") or "")
+                if state not in ("Live", "Final"):
+                    continue
+                if state == "Live":
+                    games_live += 1
+                home_t = (((g.get("teams") or {}).get("home") or {}).get("team") or {})
+                away_t = (((g.get("teams") or {}).get("away") or {}).get("team") or {})
+                ha = (home_t.get("abbreviation") or home_t.get("name") or "")[:3].upper()
+                aa = (away_t.get("abbreviation") or away_t.get("name") or "")[:3].upper()
+                evs, total, hs, as_ = _dl_live_events(g.get("gamePk"))
+                slate_hrs += total
+                live = (state == "Live")
+                for e in evs:
+                    det = "· " + e["kind"] + " · " + e["half"]
+                    sub = (e["sub"] + " · " if e["sub"] else "") + aa + " " + str(as_) + "–" + str(hs) + " " + ha
+                    events.append({"name": e["name"], "mlbId": e["mlbId"], "det": det, "sub": sub, "live": live})
+        out["events"] = events
+        out["gamesLive"] = games_live
+        out["slateHrs"] = slate_hrs
+    except Exception as e:
+        out["errors"]["live"] = str(e)
+    return jsonify(out)
 
 
 if __name__ == "__main__":
