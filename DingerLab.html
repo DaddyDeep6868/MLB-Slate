@@ -181,35 +181,41 @@ document.addEventListener('DOMContentLoaded', async function() {
   </script>
 <script id="dl-live-bridge">
 /* =====================================================================
-   DingerLab live-data bridge  (v6.0)
+   DingerLab live-data bridge  (v6.1)
    Non-destructive: the Stadium Night design renders exactly as shipped.
-   This script waits for the design to render, pulls the user's REAL
-   DingerLab data (server /api/state -> modelExports / boardSnapshots,
-   plus same-origin localStorage), and hydrates the Dashboard KPIs and
-   Top Star Plays cards. If no live data is found, the representative
-   design is left untouched.
+   Waits for the design to render, pulls the user's REAL DingerLab data
+   (server /api/state -> modelExports / boardSnapshots, plus same-origin
+   localStorage) and hydrates the Dashboard KPIs, the Top Star Plays
+   cards, AND the player Intelligence Report drawer. No live data =>
+   the representative design is left untouched (UI never breaks).
    ===================================================================== */
 (function () {
   if (window.__DL_BRIDGE__) return;
   window.__DL_BRIDGE__ = true;
-  var DL_BUILD = 'v6.0';
+  var DL_BUILD = 'v6.1';
   var BACKENDS = [];
   try { if (location && location.origin && /^https?:/.test(location.origin)) BACKENDS.push(location.origin); } catch (e) {}
   BACKENDS.push('https://mlb-slate.onrender.com');
 
   var LIVE = null;          // { plays:[...], kpis:{...} }
-  var lastSig = '';         // guards against redundant hydration loops
+  var lastSig = '';
   var observer = null;
+  window.__dlDrawerIdx = null;
+
+  var TONE = {
+    hot: ['rgba(255,138,76,.14)', '#ff8a4c'], pos: ['rgba(53,208,192,.14)', '#35d0c0'],
+    good: ['rgba(53,208,192,.13)', '#35d0c0'], info: ['rgba(120,160,255,.13)', '#9ab4ff'],
+    bad: ['rgba(255,107,107,.14)', '#ff6b6b'], plain: ['rgba(255,255,255,.06)', '#c3cad6']
+  };
 
   /* ---------- helpers ---------- */
   function num(x) { var n = Number(x); return isFinite(n) ? n : null; }
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
   function american(dec) {
-    var d = num(dec);
-    if (!d || d <= 1) return null;
+    var d = num(dec); if (!d || d <= 1) return null;
     return d >= 2 ? '+' + Math.round((d - 1) * 100) : '\u2212' + Math.round(100 / (d - 1));
   }
   function fmtOdds(row) {
-    // try several shapes the model may persist
     if (row.americanBest) return String(row.americanBest);
     if (row.bestAmerican) return String(row.bestAmerican);
     if (row.odds && row.odds.bestAmerican) return String(row.odds.bestAmerican);
@@ -218,15 +224,14 @@ document.addEventListener('DOMContentLoaded', async function() {
   }
   function fmtPct(x, withSign) {
     var n = num(x); if (n === null) return '\u2014';
-    if (Math.abs(n) <= 1.5) n = n * 100;       // fraction -> percent
+    if (Math.abs(n) <= 1.5) n = n * 100;
     var s = (Math.round(n * 10) / 10).toFixed(1) + '%';
     return withSign && n > 0 ? '+' + s : s;
   }
   function lastNameInitial(name) {
     if (!name) return '';
-    var parts = String(name).trim().split(/\s+/);
-    if (parts.length < 2) return name;
-    return parts[0].charAt(0) + '. ' + parts.slice(1).join(' ');
+    var p = String(name).trim().split(/\s+/);
+    return p.length < 2 ? name : p[0].charAt(0) + '. ' + p.slice(1).join(' ');
   }
   function stars(score) {
     var n = Math.max(0, Math.min(5, Math.round((num(score) || 0) / 20)));
@@ -240,35 +245,40 @@ document.addEventListener('DOMContentLoaded', async function() {
     row = row || {};
     var p = row.p || row.player || {};
     var name = row.name || p.name || row.playerName || 'Player';
-    var team = row.team || p.team || '';
-    var opp = row.opp || row.opponent || p.opp || '';
-    var pos = row.pos || p.pos || '';
+    var team = row.team || p.team || '', opp = row.opp || row.opponent || p.opp || '', pos = row.pos || p.pos || '';
     var sub = [team && opp ? team + ' vs ' + opp : (team || opp), pos].filter(Boolean).join(' \u00b7 ');
-    var score = num(row.dingerScore != null ? row.dingerScore : (row.edgeScore != null ? row.edgeScore : row.score)) || 0;
-    var prob = row.prob != null ? row.prob : row.modelProb;
+    var score = Math.round(num(row.dingerScore != null ? row.dingerScore : (row.edgeScore != null ? row.edgeScore : row.score)) || 0);
     var ev = row.ev != null ? row.ev : (row.EV != null ? row.EV : null);
+    var evNum = (function () { var n = num(ev); if (n === null) return null; return Math.abs(n) <= 1.5 ? n * 100 : n; })();
     var c = row.components || {};
+    var mk = String(row.mk || row.market || 'hr').toLowerCase();
     var profile = [
       ['Power', c.power], ['Recent form', c.recent], ['Pitcher matchup', c.pitcher],
-      ['Park / weather', c.parkWeather], ['Lineup spot', c.lineup], ['Odds value', c.oddsValue],
-      ['Confidence', c.confidence]
+      ['Park / weather', c.parkWeather], ['Lineup spot', c.lineup], ['Odds value', c.oddsValue], ['Confidence', c.confidence]
     ].filter(function (r) { return num(r[1]) !== null; }).map(function (r) {
-      var v = Math.round(num(r[1]));
-      var col = v >= 80 ? '#ff8a4c' : v >= 65 ? '#35d0c0' : '#9aa3b2';
+      var v = Math.round(num(r[1])), col = v >= 80 ? '#ff8a4c' : v >= 65 ? '#35d0c0' : '#9aa3b2';
       return { label: r[0], pct: v + '%', val: String(v), color: col };
     });
     var badges = (row.badges || []).slice(0, 3).map(function (b) {
       return Array.isArray(b) ? { label: b[0], tone: b[1] } : { label: String(b), tone: 'plain' };
     });
+    var due = row.due || {};
+    var pw = num(c.power), vol = num(c.volatility);
+    var fade = vol == null ? 'Low' : vol >= 70 ? 'High' : vol >= 50 ? 'Med' : 'Low';
     return {
-      id: (name + '_' + mktLabel(row.mk || row.market)).toLowerCase().replace(/[^a-z0-9]+/g, '_'),
-      name: name, sub: sub || '\u2014', score: Math.round(score),
-      starsText: stars(score), market: mktLabel(row.mk || row.market),
-      prob: fmtPct(prob), best: fmtOdds(row), ev: fmtPct(ev, true),
-      evNum: (function () { var n = num(ev); if (n === null) return null; return Math.abs(n) <= 1.5 ? n * 100 : n; })(),
-      park: num(c.parkWeather),
-      badges: badges,
-      due: row.due || {}
+      name: name, sub: sub || '\u2014', score: score, starsText: stars(score), market: mktLabel(mk),
+      prob: fmtPct(row.prob != null ? row.prob : row.modelProb), best: fmtOdds(row), ev: fmtPct(ev, true), evNum: evNum,
+      park: num(c.parkWeather), badges: badges, profile: profile,
+      markets: [{ label: mktLabel(mk), odds: fmtOdds(row), kind: mk === 'hr' ? 'hot' : (evNum > 0 ? 'pos' : 'plain') }],
+      reasons: (row.strengths || row.reasons || []).slice(0, 4),
+      risks: (row.risks || []).slice(0, 3),
+      dueLabel: due.label || (due.score != null ? 'Due ' + Math.round(due.score) : 'Steady'),
+      duePct: (due.score != null ? Math.round(due.score) : Math.min(95, score)) + '%',
+      dnaClass: score >= 85 ? 'Elite power' : score >= 72 ? 'Plus power' : 'Solid power',
+      batSpeed: pw == null ? '\u2014' : (70 + Math.round(pw * 0.12)) + ' mph',
+      impact: pw == null ? '\u2014' : pw >= 88 ? 'A+' : pw >= 75 ? 'A' : pw >= 60 ? 'B+' : 'B',
+      launch: pw == null ? '\u2014' : pw >= 85 ? 'Ideal' : 'High',
+      fade: fade, fadeColor: fade === 'High' ? '#ff6b6b' : fade === 'Med' ? '#ffc24d' : '#35d0c0'
     };
   }
 
@@ -278,7 +288,6 @@ document.addEventListener('DOMContentLoaded', async function() {
     plays.sort(function (a, b) { return b.score - a.score; });
     return plays;
   }
-
   function computeKpis(plays) {
     var hr = plays.filter(function (p) { return p.market === 'HR'; });
     var projHr = hr.reduce(function (s, p) { var v = parseFloat(p.prob); return s + (isFinite(v) ? v / 100 : 0); }, 0);
@@ -312,38 +321,31 @@ document.addEventListener('DOMContentLoaded', async function() {
     hydrate(true);
     return true;
   }
-
   function loadLocal() {
     try {
       for (var i = 0; i < localStorage.length; i++) {
         var k = localStorage.key(i);
         if (!/model.*export|board.*snap|dinger/i.test(k)) continue;
         var v = JSON.parse(localStorage.getItem(k));
-        var rows = Array.isArray(v) ? v : null;
-        if (rows && normalize(rows).length) { return ingest({ modelExports: rows }); }
+        if (Array.isArray(v) && normalize(v).length) return ingest({ modelExports: v });
       }
     } catch (e) {}
     return false;
   }
-
   function loadServer(idx) {
     idx = idx || 0;
     if (idx >= BACKENDS.length) return;
     var url = BACKENDS[idx].replace(/\/$/, '') + '/api/state';
     fetch(url, { mode: 'cors', credentials: 'omit' })
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (j) {
-        var state = j && (j.state || j);
-        if (!ingest(state)) loadServer(idx + 1);
-      })
+      .then(function (j) { var s = j && (j.state || j); if (!ingest(s)) loadServer(idx + 1); })
       .catch(function () { loadServer(idx + 1); });
   }
-
   function loadAll() { if (!loadLocal()) loadServer(0); }
 
   /* ---------- DOM hydration (defensive, never throws) ---------- */
   function txtNodes(root, re) {
-    var out = [], it = root.querySelectorAll('div,span');
+    var out = [], it = root.querySelectorAll('div,span,h2');
     for (var i = 0; i < it.length; i++) {
       var t = (it[i].childElementCount === 0) ? (it[i].textContent || '').trim() : '';
       if (t && re.test(t)) out.push(it[i]);
@@ -351,102 +353,126 @@ document.addEventListener('DOMContentLoaded', async function() {
     return out;
   }
   function setText(el, val) { if (el && val != null && val !== '') el.textContent = val; }
+  function profileRow(f) {
+    return '<div style="display:grid;grid-template-columns:128px 1fr 34px;align-items:center;gap:10px">' +
+      '<span style="font-size:12.5px;color:#9aa3b2">' + esc(f.label) + '</span>' +
+      '<span style="height:8px;border-radius:8px;background:rgba(255,255,255,.07);overflow:hidden;display:block">' +
+      '<span style="display:block;height:100%;width:' + f.pct + ';background:' + f.color + '"></span></span>' +
+      '<span style="font-family:&#39;Space Grotesk&#39;;font-weight:700;font-size:12.5px;text-align:right">' + esc(f.val) + '</span></div>';
+  }
+  function reasonItem(sign, color) {
+    return function (t) {
+      return '<div style="font-size:12px;color:#c3cad6;line-height:1.4;padding-left:14px;position:relative">' +
+        '<span style="position:absolute;left:0;color:' + color + '">' + sign + '</span>' + esc(t) + '</div>';
+    };
+  }
+  function chip(m) {
+    var c = TONE[m.kind] || TONE.plain;
+    return '<span style="font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:8px;background:' + c[0] + ';color:' + c[1] + '">' + esc(m.label) + ' \u00b7 ' + esc(m.odds) + '</span>';
+  }
 
   function hydrateKpis(root) {
     if (!LIVE) return;
     var k = LIVE.kpis;
-    var map = [
-      ['PROJECTED HRs', k.projHr],
-      ['PLAYS ON BOARD', k.plays != null ? String(k.plays) : null, k.plays != null ? 'across the board' : null],
-      ['TOP DINGER SCORE', k.topScore != null ? String(k.topScore) : null, k.topWho],
-      ['BEST EV', k.bestEv, k.bestEvWho],
-      ['HOT PARK', k.park]
-    ];
-    map.forEach(function (m) {
+    [['PROJECTED HRs', k.projHr], ['PLAYS ON BOARD', k.plays != null ? String(k.plays) : null, k.plays != null ? 'across the board' : null],
+     ['TOP DINGER SCORE', k.topScore != null ? String(k.topScore) : null, k.topWho], ['BEST EV', k.bestEv, k.bestEvWho], ['HOT PARK', k.park]
+    ].forEach(function (m) {
       var labels = txtNodes(root, new RegExp('^' + m[0] + '$', 'i'));
       if (!labels.length) return;
       var card = labels[0].parentElement; if (!card) return;
-      var kids = card.children;
-      if (kids[1]) setText(kids[1], m[1]);
-      if (m[2] && kids[2]) setText(kids[2], m[2]);
+      if (card.children[1]) setText(card.children[1], m[1]);
+      if (m[2] && card.children[2]) setText(card.children[2], m[2]);
     });
   }
-
   function hydrateCards(root) {
     if (!LIVE) return;
     var cards = root.querySelectorAll('[data-player]');
     for (var i = 0; i < cards.length && i < LIVE.plays.length; i++) {
       var card = cards[i], pl = LIVE.plays[i];
       try {
-        // score ring + inner number
         var ring = card.querySelector('div[style*="conic-gradient"]');
-        if (ring) {
-          ring.style.background = 'conic-gradient(var(--ac,#ff8a4c) ' + pl.score + '%,rgba(255,255,255,.08) 0)';
-          var sc = ring.querySelector('span'); setText(sc, String(pl.score));
-        }
-        // name (nowrap/ellipsis div), sub (#7b8597), stars (letter-spacing 1.5px)
-        var nameEl = card.querySelector('div[style*="ellipsis"]'); setText(nameEl, pl.name);
-        var subEl = card.querySelector('div[style*="color:#7b8597"]'); setText(subEl, pl.sub);
+        if (ring) { ring.style.background = 'conic-gradient(var(--ac,#ff8a4c) ' + pl.score + '%,rgba(255,255,255,.08) 0)'; setText(ring.querySelector('span'), String(pl.score)); }
+        setText(card.querySelector('div[style*="ellipsis"]'), pl.name);
+        setText(card.querySelector('div[style*="color:#7b8597"]'), pl.sub);
         var starEl = card.querySelector('div[style*="letter-spacing:1.5px"]');
-        if (starEl) starEl.innerHTML = '<span>' + pl.starsText.replace(/\u2606+/, function (m2) { return '<span style="color:#3a4150">' + m2 + '</span>'; }) + '</span>';
-        // stat row values (model% / best / EV) inside the dark box
+        if (starEl) starEl.textContent = pl.starsText;
         var box = card.querySelector('div[style*="#0c0e14"]');
-        if (box) {
-          var vals = box.querySelectorAll('div[style*="font-size:16px"]');
-          if (vals[0]) setText(vals[0], pl.prob);
-          if (vals[1]) setText(vals[1], pl.best);
-          if (vals[2]) setText(vals[2], pl.ev);
-        }
-        // badges (last flex-wrap container)
+        if (box) { var vals = box.querySelectorAll('div[style*="font-size:16px"]'); if (vals[0]) setText(vals[0], pl.prob); if (vals[1]) setText(vals[1], pl.best); if (vals[2]) setText(vals[2], pl.ev); }
         if (pl.badges && pl.badges.length) {
-          var wraps = card.querySelectorAll('div[style*="flex-wrap:wrap"]');
-          var bw = wraps[wraps.length - 1];
-          if (bw) {
-            var tone = { hot: ['rgba(255,138,76,.13)', '#ff8a4c'], good: ['rgba(53,208,192,.13)', '#35d0c0'], info: ['rgba(120,160,255,.13)', '#9ab4ff'], bad: ['rgba(255,107,107,.14)', '#ff6b6b'], plain: ['rgba(255,194,77,.13)', '#ffc24d'] };
-            bw.innerHTML = pl.badges.map(function (b) {
-              var c = tone[b.tone] || tone.plain;
-              return '<span style="font-size:10.5px;font-weight:700;padding:4px 8px;border-radius:7px;background:' + c[0] + ';color:' + c[1] + '">' + b.label + '</span>';
-            }).join('');
-          }
+          var wraps = card.querySelectorAll('div[style*="flex-wrap:wrap"]'), bw = wraps[wraps.length - 1];
+          if (bw) bw.innerHTML = pl.badges.map(function (b) { var c = TONE[b.tone] || TONE.plain; return '<span style="font-size:10.5px;font-weight:700;padding:4px 8px;border-radius:7px;background:' + c[0] + ';color:' + c[1] + '">' + esc(b.label) + '</span>'; }).join('');
         }
       } catch (e) {}
     }
   }
-
-  function setVersion(root) {
-    var v = txtNodes(root, /^v\d/i);
-    if (v.length) setText(v[v.length - 1], DL_BUILD);
+  function findDrawer() {
+    var nodes = txtNodes(document.body, /^INTELLIGENCE REPORT$/);
+    if (!nodes.length) return null;
+    var el = nodes[0];
+    while (el && el !== document.body) { var s = (el.getAttribute && el.getAttribute('style')) || ''; if (/width:min\(460px/.test(s)) return el; el = el.parentElement; }
+    return null;
   }
+  function setDna(panel, label, val) {
+    var n = txtNodes(panel, new RegExp('^' + label + '$'));
+    if (n[0]) { var v = n[0].nextElementSibling || (n[0].parentElement && n[0].parentElement.children[1]); setText(v, val); }
+  }
+  function hydrateDrawer() {
+    if (!LIVE) return;
+    var idx = window.__dlDrawerIdx; if (idx == null) return;
+    var pl = LIVE.plays[idx]; if (!pl) return;
+    var panel = findDrawer(); if (!panel) return;
+    try {
+      var h2 = panel.querySelector('h2'); setText(h2, pl.name);
+      if (h2 && h2.nextElementSibling) setText(h2.nextElementSibling, pl.sub);
+      var chips = panel.querySelector('div[style*="margin-top:13px"]');
+      if (chips && pl.markets.length) chips.innerHTML = pl.markets.map(chip).join('');
+      var ring = panel.querySelector('div[style*="conic-gradient"]');
+      if (ring) { ring.style.background = 'conic-gradient(var(--ac,#ff8a4c) calc(' + pl.score + ' * 1%),rgba(255,255,255,.08) 0)'; setText(ring.querySelector('span'), String(pl.score)); }
+      var st = panel.querySelector('div[style*="letter-spacing:2px"]'); if (st) st.textContent = pl.starsText;
+      var dl = txtNodes(panel, /^DUE METER/); if (dl[0]) dl[0].textContent = 'DUE METER \u00b7 ' + pl.dueLabel;
+      var dueBar = panel.querySelector('div[style*="linear-gradient(90deg"]'); if (dueBar) dueBar.style.width = pl.duePct;
+      var ep = txtNodes(panel, /^Edge Profile$/);
+      if (ep[0] && ep[0].nextElementSibling && pl.profile.length) ep[0].nextElementSibling.innerHTML = pl.profile.map(profileRow).join('');
+      setDna(panel, 'Bat speed', pl.batSpeed); setDna(panel, 'Impact force', pl.impact); setDna(panel, 'Launch path', pl.launch); setDna(panel, 'Fade risk', pl.fade);
+      var dna = txtNodes(panel, /^(Elite power|Plus power|Solid power|30-HR profile)$/); if (dna[0]) dna[0].textContent = pl.dnaClass;
+      var why = txtNodes(panel, /^WHY IT HITS$/); if (why[0] && why[0].nextElementSibling && pl.reasons.length) why[0].nextElementSibling.innerHTML = pl.reasons.map(reasonItem('+', 'var(--pos,#35d0c0)')).join('');
+      var rk = txtNodes(panel, /^RISKS$/); if (rk[0] && rk[0].nextElementSibling && pl.risks.length) rk[0].nextElementSibling.innerHTML = pl.risks.map(reasonItem('\u2212', '#ff8d8d')).join('');
+    } catch (e) {}
+  }
+  function setVersion(root) { var v = txtNodes(root, /^v\d/i); if (v.length) setText(v[v.length - 1], DL_BUILD); }
 
   function hydrate(force) {
     var root = document.body; if (!root) return;
-    if (!/COMMAND CENTER/.test(root.textContent || '')) return; // dashboard not shown
-    var sig = (LIVE ? LIVE.plays.length + ':' + (LIVE.kpis.topScore || 0) : '0') + ':' + root.querySelectorAll('[data-player]').length;
+    var txt = root.textContent || '';
+    if (!/COMMAND CENTER|DingerLab/.test(txt)) return;
+    var drawerOpen = /INTELLIGENCE REPORT/.test(txt);
+    var sig = (LIVE ? LIVE.plays.length + ':' + (LIVE.kpis.topScore || 0) : '0') + ':' + root.querySelectorAll('[data-player]').length + ':' + (drawerOpen ? 'd' + window.__dlDrawerIdx : 'n');
     if (!force && sig === lastSig) return;
     lastSig = sig;
     if (observer) observer.disconnect();
-    try { setVersion(root); hydrateKpis(root); hydrateCards(root); } catch (e) {}
+    try { setVersion(root); hydrateKpis(root); hydrateCards(root); if (drawerOpen) hydrateDrawer(); } catch (e) {}
     if (observer) observer.observe(document.body, { childList: true, subtree: true });
   }
-
   function installObserver() {
     if (observer || !document.body) return;
     var t = null;
-    observer = new MutationObserver(function () {
-      clearTimeout(t);
-      t = setTimeout(function () { hydrate(false); }, 120);
-    });
+    observer = new MutationObserver(function () { clearTimeout(t); t = setTimeout(function () { hydrate(false); }, 120); });
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
-  /* ---------- boot: wait for the design to render, then wire ---------- */
+  /* track which card was clicked so the drawer can show the matching live play */
+  document.addEventListener('click', function (e) {
+    var card = e.target && e.target.closest && e.target.closest('[data-player]');
+    if (!card) return;
+    var cards = Array.prototype.slice.call(document.querySelectorAll('[data-player]'));
+    window.__dlDrawerIdx = cards.indexOf(card);
+  }, true);
+
+  /* boot: wait for the design to render, then wire */
   var tries = 0;
   var iv = setInterval(function () {
     tries++;
-    if (document.body && /COMMAND CENTER|DingerLab/.test(document.body.textContent || '')) {
-      installObserver();
-      hydrate(true);
-    }
+    if (document.body && /COMMAND CENTER|DingerLab/.test(document.body.textContent || '')) { installObserver(); hydrate(true); }
     if (tries > 160) clearInterval(iv);
   }, 250);
 
