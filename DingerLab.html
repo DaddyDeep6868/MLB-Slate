@@ -51,8 +51,8 @@
 <div id="toast"></div>
 <script>
 /* ===================== DingerLab — Stadium Night ===================== */
-var APP_VERSION = "v7.7";
-var APP_UPDATED = "v7.7 \u2014 ULX HR Parlay Builder ported from v4.25: Anchor \u2192 Value Bat \u2192 Longshot with 10-check green-light gate, reroll, and one-tap add-to-slip";
+var APP_VERSION = "v7.8";
+var APP_UPDATED = "v7.8 \u2014 QuickPick \u2192 Pikkit: one-tap copies your slip legs and opens quickpick.pikkit.com so you can paste and generate the betslip";
 
 var CFG = { backend: "https://mlb-slate.onrender.com" };
 var AC="#ff8a4c", POS="#35d0c0", GOLD="#ffc24d", PINK="#ff5ea8", PURPLE="#a78bfa", WARN="#ff6b6b";
@@ -616,6 +616,33 @@ function viewLive(){
 /* ===================== BET SLIP ===================== */
 function recompute(){ var dec=1,prob=1; S.slip.forEach(function(l){ var d=amToDec(l.american); dec*=d; prob*=(l.prob!=null?l.prob:impliedFromAm(l.american)); }); return {dec:dec,prob:prob}; }
 function kellyAmt(r){ if(S.slip.length===0) return 0; var edge=(r.prob*(r.dec-1)-(1-r.prob)); var f=edge/(r.dec-1); return Math.max(0,0.25*100*f); }
+/* ===================== QUICKPICK / PIKKIT ===================== */
+function quickPickLegText(l){
+  var mk=String(l.mk||"").toLowerCase();
+  var label=String(l.market||"").toLowerCase();
+  var n=l.name||"";
+  if(mk==="hr"||/home\s*run|^hr$/.test(label)) return "Over 0.5 "+n+" Home Runs";
+  if(mk==="hits2"||/2\+?\s*hit/.test(label))   return "Over 1.5 "+n+" Hits";
+  if(mk==="tb"||/tb|total\s*bas/.test(label))  return "Over 1.5 "+n+" Total Bases";
+  if(mk==="rbi"||/rbi/.test(label))            return "Over 0.5 "+n+" RBIs";
+  if(mk==="hits"||/hit/.test(label))           return "Over 0.5 "+n+" Hits";
+  return n+" "+(l.market||"HR");
+}
+function slipQuickPickText(){
+  if(!S.slip||!S.slip.length) return "";
+  return S.slip.map(function(l){ return quickPickLegText(l); }).join("\n");
+}
+async function openQuickPick(){
+  var txt=slipQuickPickText();
+  if(!txt){ toast("Add legs to your slip first"); return; }
+  try{
+    await navigator.clipboard.writeText(txt);
+    toast("QuickPick legs copied \u2192 paste into Pikkit");
+  }catch(e){
+    toast("Copy blocked \u2014 opening Pikkit anyway");
+  }
+  try{ window.open("https://quickpick.pikkit.com/","_blank","noopener,noreferrer"); }catch(e){}
+}
 function slipEl(){
   var r=recompute();
   var legs=S.slip.map(function(l,i){return "<div style=\"padding:12px;border-radius:12px;background:var(--surface);border:1px solid var(--line2)\"><div style=\"display:flex;justify-content:space-between;align-items:flex-start\"><div><div style=\"font-weight:700;font-size:13.5px\">"+esc(l.name)+"</div><div style=\"font-size:11.5px;color:#7b8597;margin-top:1px\">"+esc(l.market)+" · "+esc(l.book||"Best")+"</div></div><div style=\"display:flex;align-items:center;gap:8px\"><div style=\"font-family:'Space Grotesk';font-weight:700;font-size:14px;color:var(--ac)\">"+fmtAm(l.american)+"</div><button data-act=\"rmLeg\" data-i=\""+i+"\" style=\"width:20px;height:20px;border-radius:6px;border:1px solid rgba(255,255,255,.12);background:transparent;color:#7b8597;cursor:pointer;font-size:12px;line-height:1\">×</button></div></div></div>";}).join("");
@@ -627,7 +654,7 @@ function slipEl(){
     "<div style=\"display:flex;justify-content:space-between;font-size:13px;margin-bottom:13px\"><span style=\"color:#9aa3b2\">Model EV</span><span style=\"font-family:'Space Grotesk';font-weight:700;color:"+POS+"\">"+((r.prob*(r.dec-1)-(1-r.prob))*100>=0?"+":"")+((r.prob*(r.dec-1)-(1-r.prob))*100).toFixed(1)+"%</span></div>"+
     "<div style=\"display:flex;align-items:center;gap:8px;margin-bottom:12px\"><span style=\"font-size:13px;color:#9aa3b2\">Stake</span><div style=\"flex:1;display:flex;align-items:center;gap:4px;padding:7px 11px;border-radius:10px;background:var(--surface);border:1px solid rgba(255,255,255,.1)\"><span style=\"color:#7b8597\">$</span><input id=\"stakeInput\" type=\"number\" min=\"0\" value=\""+S.stake+"\" style=\"flex:1;width:100%;background:transparent;border:none;outline:none;color:#eef1f6;font-family:'Space Grotesk';font-weight:700;font-size:15px\"></div></div>"+
     "<div style=\"display:flex;justify-content:space-between;font-size:13px;margin-bottom:14px\"><span style=\"color:#9aa3b2\">To win</span><span id=\"slipToWin\" style=\"font-family:'Space Grotesk';font-weight:700;font-size:16px;color:var(--ac)\">$"+win.toFixed(2)+"</span></div>"+
-    "<button data-act=\"saveparlay\" class=\"btnp\" style=\"width:100%;padding:12px;border:none;border-radius:11px;cursor:pointer;font-weight:800;font-size:14px;color:#0a0c11;background:var(--ac)\">Save parlay \u2192 Track</button>"+
+    "<button data-act=\"quickpick\" style=\"width:100%;padding:11px;border:1px solid rgba(53,208,192,.45);border-radius:11px;cursor:pointer;font-weight:800;font-size:13.5px;color:#35d0c0;background:rgba(53,208,192,.10);margin-bottom:9px;display:flex;align-items:center;justify-content:center;gap:7px\"><span>\u21AA</span>QuickPick \u2192 Pikkit</button>"+"<button data-act=\"saveparlay\" class=\"btnp\" style=\"width:100%;padding:12px;border:none;border-radius:11px;cursor:pointer;font-weight:800;font-size:14px;color:#0a0c11;background:var(--ac)\">Save parlay \u2192 Track</button>"+
     "<div style=\"font-size:11px;color:#5f6878;text-align:center;margin-top:10px;line-height:1.4\">Kelly suggests <b id=\"slipKelly\" style=\"color:#9aa3b2\">$"+Math.round(kellyAmt(r))+"</b> at this edge. Capped to bankroll rules.</div></div>" : "";
   return "<aside class=\"slipaside\" style=\"border-left:1px solid var(--line2);padding:20px 18px;position:sticky;top:67px;align-self:start;height:calc(100vh - 67px);overflow:auto\">"+
     "<div style=\"display:flex;align-items:center;justify-content:space-between;margin-bottom:16px\"><div style=\"display:flex;align-items:center;gap:9px\"><span style=\"font-size:17px\">\uD83C\uDF9F\uFE0F</span><h3 style=\"margin:0;font-size:16px;font-weight:700\">Bet Slip</h3></div><span style=\"font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;background:var(--ac);color:#0a0c11\">"+S.slip.length+" leg"+(S.slip.length===1?"":"s")+"</span></div>"+
@@ -934,6 +961,7 @@ document.addEventListener("click",function(e){
   else if(a==="closeDrawer"){ if(e.target!==el && a==="closeDrawer" && el.tagName!=="BUTTON" && e.target.closest("[data-act=closeDrawer]")!==el){} S.drawer=null; render(); }
   else if(a==="addLeg"){ var dp=S.drawer||{}; S.slip.push({name:el.dataset.name,market:el.dataset.market,mk:dlMkCode(el.dataset.market),id:(dp&&dp.id)||null,gamePk:(dp&&dp.gamePk!=null)?dp.gamePk:null,date:(dp&&dp.mlbDate)||null,book:"Best",american:el.dataset.odds,prob:parseFloat(el.dataset.prob)}); S.drawer=null; toast("Added "+el.dataset.name+" to slip"); render(); }
   else if(a==="rmLeg"){ S.slip.splice(+el.dataset.i,1); render(); }
+  else if(a==="quickpick"){ openQuickPick(); }
   else if(a==="slipcombo"){ var b=CURBUILDS[+el.dataset.i]; if(b){ b.legs.forEach(function(l){ var nm=l[0].split(" — ")[0]; var mk=l[0].split(" — ")[1]||"HR"; S.slip.push({name:nm,market:mk,book:"Best",american:l[1],prob:impliedFromAm(parseAm(l[1]))}); }); toast("Added "+b.legs.length+"-leg combo to slip"); render(); } }
   else if(a==="bset"){ var k=el.dataset.k, v=el.dataset.v; S.builder[k]=(k==="legs")?(+v):v; render(); }
   else if(a==="build"){ toast((S.oddsLive?"Generated live ":"Generated ")+S.builder.legs+"-leg "+S.builder.style+" cross plays"); render(); }
