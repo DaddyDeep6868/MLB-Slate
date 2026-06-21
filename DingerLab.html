@@ -51,8 +51,8 @@
 <div id="toast"></div>
 <script>
 /* ===================== DingerLab — Stadium Night ===================== */
-var APP_VERSION = "v6.7";
-var APP_UPDATED = "2026-06-21 \u2014 Fixed the slate game count: the header pill and Games tab title multiplied the seed total by 7 (showing 105 instead of the real 15); both now show the actual number of games loaded from the live schedule.";
+var APP_VERSION = "v6.8";
+var APP_UPDATED = "2026-06-21 \u2014 Builder is now live: the cross-play builder generates real cross-game parlays from the loaded board, honoring the legs, style (Safe/Balanced/Longshot) and HR-only/All-markets controls, with computed parlay odds, win probability, per-leg edge, EV, grade and payout. Falls back to seed builds when offline.";
 
 var CFG = { backend: "https://mlb-slate.onrender.com" };
 var AC="#ff8a4c", POS="#35d0c0", GOLD="#ffc24d", PINK="#ff5ea8", PURPLE="#a78bfa", WARN="#ff6b6b";
@@ -328,13 +328,66 @@ function buildCard(b){
     "<div style=\"display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px\">"+st("WIN",b.win)+st("EDGE",b.edge,b.edgec)+st("GRADE",b.grade,b.gradec)+st("$10\u2192",b.ret)+"</div>"+
     "<div style=\"display:flex;gap:7px\"><button data-act=\"slipcombo\" data-i=\""+BUILDS.indexOf(b)+"\" class=\"btnp\" style=\"flex:1;padding:9px;border:none;border-radius:10px;cursor:pointer;font-weight:700;font-size:12.5px;color:#0a0c11;background:var(--ac)\">+ Slip</button><button data-act=\"track\" class=\"btng\" style=\"flex:1;padding:9px;border:1px solid rgba(255,255,255,.14);border-radius:10px;cursor:pointer;font-weight:600;font-size:12.5px;color:#c3cad6;background:transparent\">Track</button></div></div>";
 }
+function genBuilds(){
+  var hrOnly=(S.builder.markets==="HR only");
+  var n=S.builder.legs||3;
+  var style=S.builder.style||"Balanced";
+  var cands=[];
+  Object.keys(PLAYERS).forEach(function(id){
+    var p=PLAYERS[id]; if(!p||!p.markets) return;
+    var team=((p.line||"").split(" ")[0])||id;
+    p.markets.forEach(function(m){
+      if(hrOnly && m.label!=="HR") return;
+      var pr=(typeof m.prob==="number")?m.prob:impliedFromAm(m.odds);
+      if(!pr||pr<=0) return;
+      var dec=amToDec(m.odds); if(!dec||dec<=1) return;
+      var edge=pr-impliedFromAm(m.odds);
+      cands.push({id:id,name:p.name,team:team,label:m.label,odds:m.odds,prob:pr,dec:dec,edge:edge});
+    });
+  });
+  if(cands.length<n) return [];
+  if(style==="Safe") cands.sort(function(a,b){return b.prob-a.prob;});
+  else if(style==="Longshot") cands.sort(function(a,b){return a.prob-b.prob;});
+  else cands.sort(function(a,b){return b.edge-a.edge;});
+  var cards=[]; var usedGlobal={};
+  for(var c=0;c<4;c++){
+    var legs=[]; var teams={};
+    for(var i=0;i<cands.length && legs.length<n;i++){
+      var x=cands[i]; var key=x.id+"|"+x.label;
+      if(usedGlobal[key]) continue;
+      if(teams[x.team]) continue;
+      legs.push(x); teams[x.team]=1; usedGlobal[key]=1;
+    }
+    if(legs.length<n) break;
+    var dec=1, win=1, esum=0;
+    legs.forEach(function(l){ dec*=l.dec; win*=l.prob; esum+=l.edge; });
+    var ev=win*dec-1;
+    var grade="C", gradec=WARN;
+    if(ev>=0.10){grade="A";gradec=AC;} else if(ev>=0.06){grade="A-";gradec=AC;} else if(ev>=0.03){grade="B+";gradec=AC;} else if(ev>=0){grade="B";gradec=AC;}
+    var avgEdge=(esum/legs.length)*100;
+    cards.push({
+      title:n+"-leg \u00b7 "+style,
+      sub:n+" games \u00b7 "+(hrOnly?"HR market":"Mixed markets"),
+      odds:fmtAm(decToAm(dec)),
+      ev:"EV "+(ev>=0?"+":"\u2212")+Math.abs(ev*100).toFixed(1)+"%",
+      evc:(ev>=0?POS:WARN),
+      legs:legs.map(function(l){return [l.name+" \u2014 "+l.label, l.odds];}),
+      win:(win*100).toFixed(1)+"%",
+      edge:(avgEdge>=0?"+":"\u2212")+Math.abs(avgEdge).toFixed(1),
+      edgec:(avgEdge>=0?POS:WARN),
+      grade:grade, gradec:gradec,
+      ret:"$"+Math.round(10*dec)
+    });
+  }
+  return cards;
+}
 function viewBuilder(){
   var controls="<div style=\"background:var(--surface);border:1px solid var(--line2);border-radius:16px;padding:16px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-end;margin-bottom:24px\">"+
     "<div><div style=\"font-size:11px;color:#7b8597;font-weight:700;letter-spacing:.04em;margin-bottom:7px\">LEGS</div><div style=\"display:flex;gap:6px\">"+segBtns("bset","legs",[2,3,4,5],S.builder.legs)+"</div></div>"+
     "<div><div style=\"font-size:11px;color:#7b8597;font-weight:700;letter-spacing:.04em;margin-bottom:7px\">STYLE</div><div style=\"display:flex;gap:6px\">"+segBtns("bset","style",["Safe","Balanced","Longshot"],S.builder.style,true)+"</div></div>"+
     "<div><div style=\"font-size:11px;color:#7b8597;font-weight:700;letter-spacing:.04em;margin-bottom:7px\">MARKETS</div><div style=\"display:flex;gap:6px\">"+segBtns("bset","markets",["HR only","All markets"],S.builder.markets,true)+"</div></div>"+
     "<div style=\"flex:1\"></div><button data-act=\"build\" class=\"btnp\" style=\"padding:11px 18px;border:none;border-radius:11px;cursor:pointer;font-weight:800;font-size:14px;color:#0a0c11;background:var(--ac)\">\u26A1 Build cross plays</button></div>";
-  var grid="<div style=\"display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px\">"+BUILDS.map(buildCard).join("")+"</div>";
+  var grid="<div style=\"display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px\">"+(function(){var L=(S.oddsLive?genBuilds():BUILDS);return (L&&L.length?L:BUILDS).map(buildCard).join("");})()+"</div>";
   return "<div class=\"rise\">"+headBlock("CROSS PLAY BUILDER","Build cross-game slips","Legs across different games stay near-independent — higher true win probability than a same-game parlay at the same odds.")+controls+sectHead("\uD83E\uDDE9","Generated cross plays")+grid+"</div>";
 }
 
@@ -533,7 +586,7 @@ document.addEventListener("click",function(e){
   else if(a==="rmLeg"){ S.slip.splice(+el.dataset.i,1); render(); }
   else if(a==="slipcombo"){ var b=BUILDS[+el.dataset.i]; if(b){ b.legs.forEach(function(l){ var nm=l[0].split(" — ")[0]; var mk=l[0].split(" — ")[1]||"HR"; S.slip.push({name:nm,market:mk,book:"Best",american:l[1],prob:impliedFromAm(parseAm(l[1]))}); }); toast("Added "+b.legs.length+"-leg combo to slip"); render(); } }
   else if(a==="bset"){ var k=el.dataset.k, v=el.dataset.v; S.builder[k]=(k==="legs")?(+v):v; render(); }
-  else if(a==="build"){ toast("Generated cross plays for a "+S.builder.legs+"-leg "+S.builder.style+" slip"); render(); }
+  else if(a==="build"){ toast((S.oddsLive?"Generated live ":"Generated ")+S.builder.legs+"-leg "+S.builder.style+" cross plays"); render(); }
   else if(a==="filter"){ S.gameFilter=el.dataset.f; render(); }
   else if(a==="refresh"){ loadBoard("odds"); }
   else if(a==="load"){ loadBoard("slate"); }
