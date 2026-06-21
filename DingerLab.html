@@ -1215,6 +1215,45 @@ body.mobile-layout{ scroll-padding-bottom:128px; }
 /* Breathing room so the summary pills never jam against the nav/FAB */
 body.mobile-layout .mobile-summary-bar{ margin-bottom:10px; }
 
+
+/* === v4.51 anti-overlap === */
+/* ============================================================
+   v4.51 - Stop floating bars from overlapping content.
+   Mobile only.
+   ============================================================ */
+
+/* (1) Summary stats bar: scroll WITH the content instead of
+   sticking + ghosting over the page underneath it. */
+body.mobile-layout .mobile-summary-bar{
+  position:static !important;
+  top:auto !important;
+  z-index:auto !important;
+  transform:none !important;
+  margin:0 0 12px !important;
+}
+
+/* (2) Bottom nav: keep it frosted/transparent, but with a touch
+   more tint + stronger blur so it reads as a real bar and content
+   behind it never looks like a harsh overlap. */
+body.mobile-layout .mobile-quickbar{
+  background:color-mix(in srgb, var(--dl-night) 44%, transparent);
+  -webkit-backdrop-filter:blur(24px) saturate(1.4);
+  backdrop-filter:blur(24px) saturate(1.4);
+}
+
+/* (3) Give the page enough room to scroll fully clear of the
+   fixed bottom nav AND the floating slip button, so no card or
+   button (Clear, What changed, etc.) ends up hidden behind them. */
+body.mobile-layout .app-wrap{
+  padding-bottom:calc(152px + env(safe-area-inset-bottom, 0px)) !important;
+}
+body.mobile-layout{ scroll-padding-bottom:152px; }
+
+/* Slip button floats clearly above the bottom nav */
+body.mobile-layout .mobile-slip-fab{
+  bottom:calc(86px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 </head>
@@ -1732,8 +1771,8 @@ body.mobile-layout .mobile-summary-bar{ margin-bottom:10px; }
 <button class="mobile-slip-fab hidden" id="mobileSlipFab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2v20l2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg><span>Open slip</span></button>
 
 <script>
-const APP_VERSION = 'v4.50';
-const APP_UPDATED = 'Updated Jun 20, 2026 — v4.50: Bottom navigation is now a transparent frosted-glass bar, and page content keeps clear of it so the summary pills no longer get cut off. Mobile only.';
+const APP_VERSION = 'v4.51';
+const APP_UPDATED = 'Updated Jun 20, 2026 — v4.51: Fixed mobile overlap - the stats bar now scrolls with the page instead of ghosting over content, and cards/buttons stay clear of the bottom nav and slip button. Mobile only.';
 {
   const av=document.getElementById('appVersion');
   if(av){ av.textContent=APP_VERSION; av.title=APP_UPDATED; }
