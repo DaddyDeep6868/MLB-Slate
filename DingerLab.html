@@ -1254,8 +1254,182 @@ body.mobile-layout .mobile-slip-fab{
   bottom:calc(86px + env(safe-area-inset-bottom, 0px)) !important;
 }
 
+
+/* =================================================================
+   v5.0 DINGERLAB REDESIGN THEME (global, desktop + mobile)
+   Retrofits the reference design: dark glass, Hanken + Space Grotesk,
+   orange (#ff8a4c) / pink (#ff4d7d) / teal (#35d0c0) accents.
+   Appended last so token + chrome overrides win the cascade.
+   ================================================================= */
+
+/* ---- New design tokens (force dark reference palette app-wide) ---- */
+:root, :root[data-theme], body {
+  --dl5-bg:        #0a0c11;
+  --dl5-surface:   #13161e;
+  --dl5-surface-2: #0c0e14;
+  --dl5-ink:       #eef1f6;
+  --dl5-dim:       #8b94a6;
+  --dl5-muted:     #7b8597;
+  --dl5-faint:     #5f6878;
+  --dl5-line:      rgba(255,255,255,.08);
+  --dl5-line-soft: rgba(255,255,255,.06);
+  --dl5-ac:        #ff8a4c;
+  --dl5-ac2:       #ff4d7d;
+  --dl5-pos:       #35d0c0;
+  --dl5-gold:      #ffc24d;
+
+  /* Remap the app's core tokens so every token-driven surface re-themes */
+  --notion-bg:            #0a0c11;
+  --notion-bg-soft:       #13161e;
+  --notion-surface:       #13161e;
+  --notion-surface-hover: #1a1e28;
+  --notion-text:          #eef1f6;
+  --notion-text-soft:     #8b94a6;
+  --notion-text-faint:    #5f6878;
+  --notion-border:        rgba(255,255,255,.08);
+  --notion-border-soft:   rgba(255,255,255,.06);
+  --notion-shadow:        0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+  --notion-blue:          #ff8a4c;
+  --notion-orange:        #ff8a4c;
+  --notion-red:           #ff4d7d;
+  --notion-blue-bg:       rgba(255,138,76,.10);
+  --notion-yellow-bg:     rgba(255,194,77,.10);
+  --notion-orange-bg:     rgba(255,138,76,.10);
+  --notion-green-bg:      rgba(53,208,192,.10);
+  --notion-red-bg:        rgba(255,77,125,.10);
+  --notion-gray-bg:       #0c0e14;
+  --notion-radius:        12px;
+}
+/* Keep the same dark palette even when the OS is in dark mode */
+@media (prefers-color-scheme: dark){
+  :root{
+    --notion-bg:#0a0c11; --notion-bg-soft:#13161e; --notion-surface:#13161e;
+    --notion-surface-hover:#1a1e28; --notion-text:#eef1f6; --notion-text-soft:#8b94a6;
+    --notion-text-faint:#5f6878; --notion-border:rgba(255,255,255,.08);
+    --notion-border-soft:rgba(255,255,255,.06); --notion-blue:#ff8a4c;
+    --notion-orange:#ff8a4c; --notion-red:#ff4d7d; --notion-gray-bg:#0c0e14;
+  }
+}
+
+/* ---- Global canvas: reference radial glows + type ---- */
+html{ background:#0a0c11; }
+body{
+  background:
+    radial-gradient(1200px 600px at 78% -8%, rgba(255,138,76,.10), transparent 60%),
+    radial-gradient(900px 500px at 6% 4%, rgba(53,208,192,.07), transparent 55%),
+    #0a0c11 !important;
+  background-attachment:fixed;
+  color:var(--dl5-ink);
+  font-family:'Hanken Grotesk','Inter',ui-sans-serif,system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+.app-wrap h1, .app-wrap h2, .app-wrap h3,
+h1.dl5, h2.dl5{ font-family:'Space Grotesk','Inter',system-ui,sans-serif; letter-spacing:-.02em; }
+
+/* ---- Header (glass, gradient logo) ---- */
+.app-header{
+  background:rgba(10,12,17,.78) !important;
+  backdrop-filter:blur(14px) !important;
+  border-bottom:1px solid rgba(255,255,255,.07) !important;
+}
+.app-header .brand{ color:var(--dl5-ink); }
+.app-header .brand .logo{
+  background:linear-gradient(150deg,#ff8a4c,#ff4d7d) !important;
+  box-shadow:0 6px 20px rgba(255,77,125,.35) !important;
+  border-radius:11px !important;
+}
+.version-tag{
+  background:#13161e !important;
+  border:1px solid rgba(255,255,255,.07) !important;
+  color:var(--dl5-muted) !important;
+  border-radius:10px !important;
+}
+.pill-tag{
+  background:rgba(255,138,76,.13) !important;
+  border:1px solid rgba(255,138,76,.22) !important;
+  color:var(--dl5-ac) !important;
+  border-radius:6px !important;
+}
+
+/* ---- Toolbar / panels / generic surfaces ---- */
+.toolbar{
+  background:var(--dl5-surface) !important;
+  border:1px solid var(--dl5-line) !important;
+  border-radius:14px !important;
+  box-shadow:0 10px 30px rgba(0,0,0,.30) !important;
+}
+.panel{
+  background:var(--dl5-surface) !important;
+  border:1px solid var(--dl5-line) !important;
+  border-radius:14px !important;
+}
+
+/* ---- Inputs ---- */
+.toolbar input, .toolbar select, .toolbar textarea,
+input[type=text], input[type=number], input[type=search], select, textarea{
+  background:var(--dl5-surface-2) !important;
+  color:var(--dl5-ink) !important;
+  border:1px solid var(--dl5-line) !important;
+  border-radius:10px !important;
+}
+.toolbar input::placeholder, input::placeholder, textarea::placeholder{ color:var(--dl5-faint) !important; }
+
+/* ---- Desktop left nav rail: reference active treatment ---- */
+.tabbar{
+  background:rgba(19,22,30,.88) !important;
+  border:1px solid var(--dl5-line) !important;
+  box-shadow:0 18px 50px rgba(0,0,0,.35) !important;
+}
+.tabbar button{ color:var(--dl5-dim) !important; background:transparent !important; border:1px solid transparent !important; }
+.tabbar button:hover{ background:rgba(255,255,255,.05) !important; color:var(--dl5-ink) !important; }
+.tabbar button.active{
+  background:rgba(255,138,76,.13) !important;
+  border-color:transparent !important;
+  color:var(--dl5-ink) !important;
+  box-shadow:none !important;
+  position:relative !important;
+}
+.tabbar button.active::after{
+  content:''; position:absolute; left:2px; top:50%; transform:translateY(-50%);
+  width:3px; height:58%; border-radius:3px; background:var(--dl5-ac);
+}
+
+/* ---- KPI / stat cards (auto-dark via tokens) + display numerals ---- */
+.kpi, .kpi-card, .stat-card, .metric, .metric-card{
+  background:var(--dl5-surface) !important;
+  border:1px solid var(--dl5-line) !important;
+  border-radius:14px !important;
+}
+.kpi .num, .stat-card .num, .metric .num,
+.kpi-value, .stat-value, .metric-value{
+  font-family:'Space Grotesk','Inter',system-ui,sans-serif !important;
+}
+
+/* ---- Tables ---- */
+table{ color:var(--dl5-ink); }
+table th{ color:var(--dl5-muted) !important; border-color:var(--dl5-line) !important; }
+table td{ border-color:var(--dl5-line-soft) !important; }
+table tr:hover td{ background:rgba(255,255,255,.03) !important; }
+
+/* ---- Bet slip / right panel ---- */
+#betslip{
+  background:var(--dl5-surface) !important;
+  border:1px solid var(--dl5-line) !important;
+  color:var(--dl5-ink) !important;
+}
+
+/* ---- Accent helpers reused by the app ---- */
+.v33-slip-stat.good b{ color:var(--dl5-pos) !important; }
+.v33-slip-stat.hot  b{ color:var(--dl5-ac)  !important; }
+
+/* ---- Scrollbar ---- */
+*{ scrollbar-color:rgba(255,138,76,.45) rgba(255,255,255,.06) !important; }
+*::-webkit-scrollbar-thumb{ background:rgba(255,255,255,.12) !important; border:2px solid #0a0c11 !important; border-radius:20px !important; }
+*::-webkit-scrollbar-thumb:hover{ background:rgba(255,138,76,.5) !important; }
+/* ===== end v5.0 redesign theme ===== */
+
 </style>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 </head>
 <body>
 <header class="app-header">
@@ -1771,8 +1945,8 @@ body.mobile-layout .mobile-slip-fab{
 <button class="mobile-slip-fab hidden" id="mobileSlipFab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2v20l2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg><span>Open slip</span></button>
 
 <script>
-const APP_VERSION = 'v4.51';
-const APP_UPDATED = 'Updated Jun 20, 2026 — v4.51: Fixed mobile overlap - the stats bar now scrolls with the page instead of ghosting over content, and cards/buttons stay clear of the bottom nav and slip button. Mobile only.';
+const APP_VERSION = 'v5.0';
+const APP_UPDATED = 'Updated Jun 21, 2026 — v5.0: All-new redesign — dark glass UI, Hanken + Space Grotesk type, orange and teal accents, refreshed header, nav rail, KPIs and cards.';
 {
   const av=document.getElementById('appVersion');
   if(av){ av.textContent=APP_VERSION; av.title=APP_UPDATED; }
