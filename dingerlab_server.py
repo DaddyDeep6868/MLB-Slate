@@ -94,7 +94,10 @@ def merge_exports(old, new):
 
 @app.get("/")
 def index():
-    html = (APP_DIR / "DingerLab.html").read_text("utf-8")
+    _p = (APP_DIR / "DingerLab.html")
+    if not _p.exists():
+        _p = (APP_DIR / "DingerLab.htm")
+    html = _p.read_text("utf-8")
     inject = "<script>window.DL_SERVER_MODE=true;</script>"
     if "</head>" in html:
         html = html.replace("</head>", inject + "</head>", 1)

@@ -51,8 +51,8 @@
 <div id="toast"></div>
 <script>
 /* ===================== DingerLab — Stadium Night ===================== */
-var APP_VERSION = "v7.2";
-var APP_UPDATED = "v7.2 — Live park factors, weather, lineups and pitcher data now power the Games board and filters";
+var APP_VERSION = "v7.4";
+var APP_UPDATED = "v7.4 — Server serves DingerLab.html and the Games header projected-HR total is computed live";
 
 var CFG = { backend: "https://mlb-slate.onrender.com" };
 var AC="#ff8a4c", POS="#35d0c0", GOLD="#ffc24d", PINK="#ff5ea8", PURPLE="#a78bfa", WARN="#ff6b6b";
@@ -314,7 +314,8 @@ function gameMatchesFilter(g,fk){
   return false;
 }
 function viewGames(){
-  var head="<div style=\"margin-bottom:18px\"><div style=\"font-size:11px;letter-spacing:.14em;color:var(--ac);font-weight:700;margin-bottom:6px\">TODAY'S GAMES</div><h1 style=\"margin:0;font-size:28px;font-weight:700;letter-spacing:-.02em\">"+((S.gameCount||GAMES.length))+"-game slate · 23.6 projected HRs</h1></div>";
+  var _phr=GAMES.reduce(function(a,g){var n=parseFloat(g.proj);return a+(isNaN(n)?0:n);},0);
+  var head="<div style=\"margin-bottom:18px\"><div style=\"font-size:11px;letter-spacing:.14em;color:var(--ac);font-weight:700;margin-bottom:6px\">TODAY'S GAMES</div><h1 style=\"margin:0;font-size:28px;font-weight:700;letter-spacing:-.02em\">"+((S.gameCount||GAMES.length))+"-game slate · "+(_phr>0?_phr.toFixed(1):"\u2014")+" projected HRs</h1></div>";
   var filters="<div style=\"display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px\">"+GAME_FILTERS.map(function(f){var on=f===S.gameFilter;return "<span data-act=\"filter\" data-f=\""+esc(f)+"\" class=\"chip\" style=\"font-size:12.5px;font-weight:600;padding:8px 13px;border-radius:9px;background:"+(on?"var(--ac)":"var(--surface)")+";"+(on?"color:#0a0c11":"border:1px solid rgba(255,255,255,.1);color:#9aa3b2")+"\">"+f+"</span>";}).join("")+"</div>";
   var FK={"\uD83C\uDFC6 Trophy":"trophy","Park Edge":"parkEdge","P-Weak":"pWeak","EV+":"evPlus","Steam":"steam"};
   var fk=FK[S.gameFilter];
