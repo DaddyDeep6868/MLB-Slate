@@ -42,8 +42,103 @@
   #toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);opacity:0;pointer-events:none;
     background:#161a24;border:1px solid var(--line2);color:var(--text);padding:11px 18px;border-radius:11px;font-size:13px;font-weight:600;z-index:120;transition:opacity .2s,transform .2s;box-shadow:0 10px 30px rgba(0,0,0,.4)}
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-  @media(max-width:1180px){.bodygrid{grid-template-columns:200px minmax(0,1fr)!important}.slipaside{display:none!important}}
-  @media(max-width:780px){.bodygrid{grid-template-columns:1fr!important}.railnav{display:none!important}}
+  /* === RESPONSIVE: TABLET (max 1180px) === */
+  @media(max-width:1180px){
+    .bodygrid{grid-template-columns:200px minmax(0,1fr)!important}
+    .slipaside{position:static!important;height:auto!important;border-left:none!important;border-top:1px solid var(--line2)!important;width:auto!important;padding:18px 16px!important;align-self:stretch!important;grid-column:1/-1!important}
+  }
+  /* === RESPONSIVE: MOBILE (max 900px) === */
+  @media(max-width:900px){
+    .bodygrid{display:block!important}
+    /* Header: compact + wrap */
+    header{padding:10px 12px!important;gap:8px!important;flex-wrap:wrap!important}
+    header > div[style*="width:38px"]{width:32px!important;height:32px!important;font-size:16px!important}
+    header div[style*="font-size:19px"]{font-size:16px!important}
+    header button{padding:8px 11px!important;font-size:12.5px!important;gap:5px!important}
+    /* Hide date chip & version chip (both share var(--surface) bg in header) */
+    header > div[style*="background:var(--surface);border:1px solid var(--line)"]{display:none!important}
+    /* Trim live chip */
+    header > div[style*="background:rgba(53,208,192,.08)"]{padding:5px 9px!important}
+    /* Rail nav -> horizontal scrolling tab bar */
+    .railnav{
+      position:sticky!important; top:54px!important; z-index:30!important;
+      flex-direction:row!important; padding:6px 8px!important;
+      border-right:none!important; border-bottom:1px solid var(--line2)!important;
+      background:rgba(10,12,17,.93)!important; backdrop-filter:blur(12px)!important;
+      overflow-x:auto!important; overflow-y:hidden!important;
+      gap:4px!important; align-self:auto!important; flex-wrap:nowrap!important;
+      -webkit-overflow-scrolling:touch;
+    }
+    .railnav > div{display:none!important}
+    .railnav .navbtn{flex:0 0 auto!important;padding:8px 12px!important;font-size:12.5px!important;border-radius:9px!important;white-space:nowrap!important}
+    .railnav .navbtn > span:first-child{display:none!important}
+    /* Section padding */
+    .rise{padding:0 2px!important}
+    main{padding:14px 12px!important}
+    /* Typography */
+    h1{font-size:22px!important;letter-spacing:-.01em!important}
+    h2{font-size:18px!important}
+    h3{font-size:15px!important}
+    /* Headblock subtitle width */
+    p[style*="max-width:600px"],p[style*="max-width:560px"],p[style*="max-width:740px"]{max-width:100%!important;font-size:13px!important}
+    /* Multi-col stat grids -> 2 columns */
+    div[style*="grid-template-columns:repeat(5,1fr)"],
+    div[style*="grid-template-columns:repeat(4,1fr)"]{grid-template-columns:repeat(2,1fr)!important}
+    /* 3-col grids -> 2 columns (or 1 for big tiles) */
+    div[style*="grid-template-columns:repeat(3,1fr)"]{grid-template-columns:1fr!important}
+    div[style*="grid-template-columns:1fr 1fr 1fr"]{grid-template-columns:1fr!important}
+    /* Two-column splits -> stacked */
+    div[style*="grid-template-columns:minmax(0,1.05fr)"],
+    div[style*="grid-template-columns:minmax(0,.95fr)"],
+    div[style*="grid-template-columns:minmax(0,1.3fr)"],
+    div[style*="grid-template-columns:minmax(0,1.4fr)"],
+    div[style*="grid-template-columns:minmax(0,.7fr)"],
+    div[style*="grid-template-columns:minmax(0,.6fr)"],
+    div[style*="grid-template-columns:minmax(0,1fr) minmax(0,1fr)"],
+    div[style*="grid-template-columns:minmax(0,1fr) minmax(0,.95fr)"]{grid-template-columns:1fr!important}
+    /* Auto-fill card grids -> single column */
+    div[style*="minmax(258px"],
+    div[style*="minmax(300px"],
+    div[style*="minmax(220px"],
+    div[style*="minmax(150px"]{grid-template-columns:1fr!important}
+    /* Slip aside: inline at bottom, full width */
+    .slipaside{
+      position:static!important; height:auto!important;
+      border-left:none!important; border-top:1px solid var(--line2)!important;
+      width:auto!important; padding:18px 14px!important; overflow:visible!important;
+      align-self:stretch!important;
+    }
+    /* Player drawer: full width */
+    div[style*="width:min(460px,94vw)"]{width:100%!important;border-left:none!important}
+    /* Drawer header h2 */
+    div[style*="width:min(460px,94vw)"] h2{font-size:20px!important}
+    /* Tables: smaller, allow scroll */
+    table{font-size:12px!important}
+    table[style*="min-width:760px"]{min-width:600px!important}
+    /* Disable hover lift on touch */
+    .hovcard:hover{transform:none!important}
+    /* Toast position */
+    #toast{left:12px!important;right:12px!important;transform:translateY(20px)!important;bottom:14px!important;text-align:center;font-size:12.5px}
+    #toast.show{transform:translateY(0)!important}
+    /* Inputs: prevent iOS zoom */
+    input,select,textarea{font-size:16px!important}
+  }
+  /* === RESPONSIVE: SMALL MOBILE (max 480px) === */
+  @media(max-width:480px){
+    header{padding:8px 10px!important}
+    /* Hide "MLB HR INTELLIGENCE" subtitle under logo */
+    header div[style*="letter-spacing:.04em"]{display:none!important}
+    /* Even the live chip text can be tight */
+    header > div[style*="background:rgba(53,208,192,.08)"]{font-size:10.5px!important;padding:4px 7px!important}
+    h1{font-size:20px!important}
+    h2{font-size:17px!important}
+    /* 2-col grids stay 2-col but tighter gaps */
+    div[style*="grid-template-columns:repeat(2,1fr)"]{gap:8px!important}
+    /* Section eyebrow */
+    div[style*="letter-spacing:.14em"]{font-size:10px!important}
+    /* KPI numbers slightly smaller */
+    div[style*="font-size:30px;font-weight:700"]{font-size:22px!important}
+  }
 </style>
 </head>
 <body>
@@ -51,8 +146,8 @@
 <div id="toast"></div>
 <script>
 /* ===================== DingerLab — Stadium Night ===================== */
-var APP_VERSION = "v7.8";
-var APP_UPDATED = "v7.8 \u2014 QuickPick \u2192 Pikkit: one-tap copies your slip legs and opens quickpick.pikkit.com so you can paste and generate the betslip";
+var APP_VERSION = "v7.9";
+var APP_UPDATED = "v7.9 \u2014 Mobile optimization: responsive header, horizontal scroll tab bar, single-column grids, full-width slip + drawer, touch-friendly tap targets, iOS zoom-safe inputs";
 
 var CFG = { backend: "https://mlb-slate.onrender.com" };
 var AC="#ff8a4c", POS="#35d0c0", GOLD="#ffc24d", PINK="#ff5ea8", PURPLE="#a78bfa", WARN="#ff6b6b";
