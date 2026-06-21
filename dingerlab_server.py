@@ -428,7 +428,8 @@ def _dl_board(league="mlb"):
             "reasons": ["Best price " + (_dl_fmt_am(prim["bestAm"]) or "") + (" at " + bb if bb else ""),
                         "No-vig fair " + (_dl_fmt_am(prim["fairAm"]) or "") + " = " + ("%.1f%%" % (prim["fair"] * 100)) + " implied",
                         ("Positive EV vs %d-book consensus" % prim["books"]) if prim["ev"] > 0 else "Priced near fair value"],
-            "risks": ["Lineups, weather and park not modeled here", "Edge assumes book consensus is the true price"],
+            "risks": ["Lineup, weather and park pending", "Edge assumes book consensus is the true price"],
+            "park": "", "parkPct": "", "wind": "", "windc": "", "temp": "", "roof": "", "inLineup": None,
         }
         prim["pid"] = pid
         prim_list.append(prim)
@@ -475,6 +476,7 @@ def _dl_board(league="mlb"):
                        "win": ("%.1f%%" % (prob * 100)), "edge": ("%+.1f" % ((prob * dec - 1) * 100)), "kelly": "-"})
     games = []
     feed = []
+    _t0 = time.time()
     try:
         d = datetime.utcnow().strftime("%Y-%m-%d")
         sch = jget("https://statsapi.mlb.com/api/v1/schedule", params={"sportId": 1, "date": d})
@@ -517,9 +519,60 @@ def _dl_board(league="mlb"):
                 hp = (((g.get("teams") or {}).get("home") or {}).get("probablePitcher") or {}).get("fullName", "")
                 apr = (((g.get("teams") or {}).get("away") or {}).get("probablePitcher") or {}).get("fullName", "")
                 your = any(x.get("id") for x in gp[:6])
-                games.append({"away": aa, "home": ha, "time": tm, "park": venue, "proj": "",
-                              "parkPct": "", "wind": "", "mkts": len(gp), "players": gp[:6],
-                              "pk": pk, "state": state})
+                _pf = _DL_PARK.get(venue)
+                _pct = _pf[0] if _pf else 0
+                _park_pct = ("%+d%%" % _pct)
+                _park_hot = _pct >= 5
+                _proj_val = 0.0
+                for _qq in prim_list:
+                    _tq = (_qq.get("team") or "")[:3].upper()
+                    if _tq and _tq in (ha, aa) and _qq.get("cls") == "hr":
+                        _proj_val += _qq.get("fair") or 0.0
+                _proj = ("%.1f" % _proj_val) if _proj_val else ""
+                _budget = (time.time() - _t0) < 14
+                _wx = {"wind": "", "windc": "", "temp": "", "roof": ("Closed" if (_pf and _pf[3]) else "Open")}
+                if _pf and _budget:
+                    _wx = _dl_weather(_pf[1], _pf[2], _pf[3])
+                _hp_id = ((((g.get("teams") or {}).get("home") or {}).get("probablePitcher") or {}).get("id"))
+                _ap_id = ((((g.get("teams") or {}).get("away") or {}).get("probablePitcher") or {}).get("id"))
+                _pweak = False
+                if _budget:
+                    _hr9s = [x for x in (_dl_pitcher_hr9(_hp_id), _dl_pitcher_hr9(_ap_id)) if x is not None]
+                    _pweak = any(x >= 1.4 for x in _hr9s)
+                _lineup = set()
+                if _budget and state != "Final":
+                    _lineup = _dl_lineup_names(pk)
+                _trophy = any((x.get("score") or 0) >= 85 for x in gp)
+                _evplus = any(x.get("evc") == "POS" for x in gp)
+                _flags = {"trophy": _trophy, "parkEdge": _park_hot, "pWeak": _pweak, "evPlus": _evplus, "steam": False}
+                for _rr in prim_list:
+                    _tr = (_rr.get("team") or "")[:3].upper()
+                    _pidr = _rr.get("pid")
+                    if _tr and _tr in (ha, aa) and _pidr in players:
+                        _inlu = (_norm_name(_rr.get("player") or "") in _lineup) if _lineup else None
+                        _P = players[_pidr]
+                        _P["park"] = venue
+                        _P["parkPct"] = _park_pct
+                        _P["wind"] = _wx["wind"]
+                        _P["windc"] = ("POS" if _park_hot else ("WARN" if _pct <= -3 else ""))
+                        _P["temp"] = _wx["temp"]
+                        _P["roof"] = _wx["roof"]
+                        _P["inLineup"] = _inlu
+                        _wx_note = (venue + " park " + _park_pct + ((", wind " + _wx["wind"]) if _wx["wind"] else "") + ((", " + _wx["temp"]) if _wx["temp"] else ""))
+                        if _inlu:
+                            _rs = _P.get("reasons") or []
+                            if "Confirmed in starting lineup" not in _rs:
+                                _P["reasons"] = ["Confirmed in starting lineup"] + _rs
+                            _P["risks"] = [_wx_note, "Edge assumes book consensus is the true price"]
+                        elif _inlu is False:
+                            _P["risks"] = ["Not in the posted starting lineup", _wx_note]
+                        else:
+                            _P["risks"] = [_wx_note + " (lineup pending)", "Edge assumes book consensus is the true price"]
+                games.append({"away": aa, "home": ha, "time": tm, "park": venue, "proj": _proj,
+                              "parkPct": _park_pct, "parkHot": _park_hot, "wind": _wx["wind"],
+                              "windc": _wx["windc"], "temp": _wx["temp"], "roof": _wx["roof"],
+                              "mkts": len(gp), "players": gp[:6],
+                              "pk": pk, "state": state, "flags": _flags})
                 matchup = aa + " vs " + ha
                 if state == "Final":
                     feed.append({"ic": "🏁", "t": "Final — " + matchup, "d": (detailed or "Final") + " · " + str(len(gp)) + " props tracked", "your": your, "time": tm})
@@ -552,6 +605,18 @@ def _dl_board(league="mlb"):
         steam = steam[:4]
     except Exception as _e:
         errors["steam"] = str(_e)
+    try:
+        _steam_names = set()
+        for _s in steam:
+            _nm = (_s.get("t") or "").split(" \u2014 ")[0].strip()
+            if _nm:
+                _steam_names.add(_norm_name(_nm))
+        for _g in games:
+            _fl = _g.get("flags") or {}
+            _fl["steam"] = any(_norm_name(pp.get("name") or "") in _steam_names for pp in (_g.get("players") or []))
+            _g["flags"] = _fl
+    except Exception:
+        pass
     return {"source": "live", "generatedAt": datetime.utcnow().isoformat() + "Z", "league": league,
             "booksLive": books_ok, "errors": errors, "playCount": len(plays), "players": players,
             "starCards": star_cards, "kpis": kpis, "combos": combos, "dataRows": data_rows, "games": games,
@@ -597,6 +662,123 @@ def jget(url, **kwargs):
     r = requests.get(url, timeout=30, headers={"user-agent": "DingerLab server sync"}, **kwargs)
     r.raise_for_status()
     return r.json()
+
+
+# ---- v7.2 board enrichment: park factors, weather, lineups, pitcher ----
+_DL_PARK = {
+    "Coors Field": (18, 39.7559, -104.9942, False),
+    "Great American Ball Park": (12, 39.0975, -84.5076, False),
+    "Yankee Stadium": (8, 40.8296, -73.9262, False),
+    "Citizens Bank Park": (7, 39.9061, -75.1665, False),
+    "American Family Field": (6, 43.0280, -87.9712, True),
+    "Rate Field": (5, 41.8299, -87.6338, False),
+    "Guaranteed Rate Field": (5, 41.8299, -87.6338, False),
+    "Daikin Park": (5, 29.7572, -95.3556, True),
+    "Minute Maid Park": (5, 29.7572, -95.3556, True),
+    "Fenway Park": (4, 42.3467, -71.0972, False),
+    "Chase Field": (4, 33.4455, -112.0667, True),
+    "Wrigley Field": (3, 41.9484, -87.6553, False),
+    "Truist Park": (3, 33.8907, -84.4677, False),
+    "Sutter Health Park": (3, 38.5803, -121.5135, False),
+    "Dodger Stadium": (2, 34.0739, -118.2400, False),
+    "Globe Life Field": (2, 32.7473, -97.0837, True),
+    "Rogers Centre": (2, 43.6414, -79.3894, True),
+    "Oriole Park at Camden Yards": (1, 39.2839, -76.6217, False),
+    "Nationals Park": (1, 38.8730, -77.0074, False),
+    "Angel Stadium": (1, 33.8003, -117.8827, False),
+    "Citi Field": (-1, 40.7571, -73.8458, False),
+    "Progressive Field": (-1, 41.4962, -81.6852, False),
+    "Target Field": (-1, 44.9817, -93.2776, False),
+    "Petco Park": (-2, 32.7073, -117.1566, False),
+    "Busch Stadium": (-2, 38.6226, -90.1928, False),
+    "T-Mobile Park": (-3, 47.5914, -122.3325, False),
+    "Kauffman Stadium": (-3, 39.0517, -94.4803, False),
+    "PNC Park": (-3, 40.4469, -80.0057, False),
+    "loanDepot park": (-4, 25.7780, -80.2195, True),
+    "Comerica Park": (-4, 42.3390, -83.0485, False),
+    "Oracle Park": (-6, 37.7786, -122.3893, False),
+}
+_DL_WX_CACHE = {}
+_DL_LINEUP_CACHE = {}
+_DL_PITCHER_CACHE = {}
+
+
+def _dl_jget(url, params=None, timeout=6):
+    r = requests.get(url, params=params, timeout=timeout, headers={"user-agent": "DingerLab board"})
+    r.raise_for_status()
+    return r.json()
+
+
+def _dl_weather(lat, lon, roof):
+    key = (round(lat, 2), round(lon, 2), datetime.utcnow().strftime("%Y-%m-%d-%H"))
+    if key in _DL_WX_CACHE:
+        return _DL_WX_CACHE[key]
+    out = {"wind": "", "windc": "", "temp": "", "roof": ("Closed" if roof else "Open")}
+    try:
+        j = _dl_jget("https://api.open-meteo.com/v1/forecast",
+                     params={"latitude": lat, "longitude": lon,
+                             "current": "temperature_2m,wind_speed_10m,wind_direction_10m",
+                             "temperature_unit": "fahrenheit", "wind_speed_unit": "mph"})
+        cur = j.get("current") or {}
+        t = cur.get("temperature_2m")
+        ws = cur.get("wind_speed_10m")
+        wd = cur.get("wind_direction_10m")
+        arrows = ["\u2191", "\u2197", "\u2192", "\u2198", "\u2193", "\u2199", "\u2190", "\u2196"]
+        arrow = arrows[int(((wd or 0) + 22.5) // 45) % 8] if wd is not None else ""
+        if roof:
+            out["wind"] = "Calm"
+        elif ws is not None:
+            out["wind"] = ("%d%s" % (int(round(ws)), arrow))
+        if t is not None:
+            out["temp"] = ("%d\u00b0" % int(round(t)))
+    except Exception:
+        pass
+    _DL_WX_CACHE[key] = out
+    return out
+
+
+def _dl_lineup_names(game_pk):
+    if game_pk in _DL_LINEUP_CACHE:
+        return _DL_LINEUP_CACHE[game_pk]
+    names = set()
+    try:
+        bs = _dl_jget("https://statsapi.mlb.com/api/v1/game/%s/boxscore" % game_pk)
+        for side in ("home", "away"):
+            tm = (((bs.get("teams") or {}).get(side)) or {})
+            order = tm.get("battingOrder") or []
+            pls = tm.get("players") or {}
+            for oid in order:
+                px = pls.get("ID%s" % oid) or {}
+                nm = ((px.get("person") or {}).get("fullName") or "")
+                if nm:
+                    names.add(_norm_name(nm))
+    except Exception:
+        pass
+    _DL_LINEUP_CACHE[game_pk] = names
+    return names
+
+
+def _dl_pitcher_hr9(pid):
+    if not pid:
+        return None
+    if pid in _DL_PITCHER_CACHE:
+        return _DL_PITCHER_CACHE[pid]
+    val = None
+    try:
+        j = _dl_jget("https://statsapi.mlb.com/api/v1/people/%s/stats" % pid,
+                     params={"stats": "season", "group": "pitching"})
+        stats = j.get("stats") or []
+        splits = (stats[0].get("splits") if stats else []) or []
+        if splits:
+            st = splits[0].get("stat") or {}
+            hr = float(st.get("homeRuns") or 0)
+            ip = float(st.get("inningsPitched") or 0)
+            if ip > 0:
+                val = hr * 9.0 / ip
+    except Exception:
+        pass
+    _DL_PITCHER_CACHE[pid] = val
+    return val
 
 
 def final_status_by_game(dates):
