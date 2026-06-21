@@ -51,17 +51,17 @@
 <div id="toast"></div>
 <script>
 /* ===================== DingerLab — Stadium Night ===================== */
-var APP_VERSION = "v6.5";
-var APP_UPDATED = "2026-06-21 \u2014 Live board: Refresh and Load now pull OddsBlaze prices across 4 books, compute no-vig consensus fair odds and best-price EV, and rebuild the players, KPIs, combos, data table and games. Falls back to the seed board when offline.";
+var APP_VERSION = "v6.6";
+var APP_UPDATED = "2026-06-21 \u2014 Live board fixes: hardened odds parsing so the bet slip math (parlay odds, payout, EV, Kelly) computes for every leg, spread the Dinger score scale so it is no longer pinned at 97, and required a true multi-book no-vig de-vig for headline EV and combos to drop bogus single-book edges.";
 
 var CFG = { backend: "https://mlb-slate.onrender.com" };
 var AC="#ff8a4c", POS="#35d0c0", GOLD="#ffc24d", PINK="#ff5ea8", PURPLE="#a78bfa", WARN="#ff6b6b";
 
 /* ---------- helpers ---------- */
 function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
-function amToDec(a){ a=+a; return a>0 ? 1+a/100 : 1+100/(-a); }
+function amToDec(a){ a=(typeof a==="number")?a:parseFloat(String(a).replace(/\u2212/g,"-").replace(/[+\s,]/g,"")); if(isNaN(a)||a===0) return 1; return a>0 ? 1+a/100 : 1+100/(-a); }
 function decToAm(d){ d=+d; if(d<=1) return "+100"; return d>=2 ? "+"+Math.round((d-1)*100) : "\u2212"+Math.round(100/(d-1)); }
-function impliedFromAm(a){ a=+a; return a>0 ? 100/(a+100) : (-a)/((-a)+100); }
+function impliedFromAm(a){ a=(typeof a==="number")?a:parseFloat(String(a).replace(/\u2212/g,"-").replace(/[+\s,]/g,"")); if(isNaN(a)||a===0) return 0; return a>0 ? 100/(a+100) : (-a)/((-a)+100); }
 function fmtAm(a){ if(a==null||a==="") return ""; if(typeof a==="string" && /[+\u2212-]/.test(a[0])) return a; a=+a; return a>0 ? "+"+a : "\u2212"+Math.abs(a); }
 function toast(msg){ var t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(t._h); t._h=setTimeout(function(){t.classList.remove("show");},2600); }
 function starHTML(n,size){ size=size||13; var s=""; for(var i=0;i<5;i++){ s+= i<n ? "<span style=\"color:"+GOLD+"\">\u2605</span>" : "<span style=\"color:#3a4150\">\u2605</span>"; } return "<span style=\"font-size:"+size+"px;letter-spacing:1.5px\">"+s+"</span>"; }

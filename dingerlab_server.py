@@ -320,8 +320,8 @@ def _dl_collect(league):
 
 def _dl_score(cls, p):
     if cls == "hr":
-        return max(50, min(97, int(round(55 + p * 190))))
-    return max(45, min(95, int(round(35 + p * 70))))
+        return max(45, min(96, int(round(40 + p * 210))))
+    return max(40, min(92, int(round(28 + p * 78))))
 
 
 def _dl_build(league="mlb"):
@@ -354,7 +354,8 @@ def _dl_build(league="mlb"):
                 best_dec = d
                 best_am = am
                 best_book = bk
-        fairs = []
+        devig = []
+        raw = []
         for bk, am in over.items():
             io = _dl_imp(am)
             if io is None:
@@ -363,17 +364,23 @@ def _dl_build(league="mlb"):
             if u is not None:
                 iu = _dl_imp(u)
                 if iu and (io + iu) > 0:
-                    fairs.append(io / (io + iu))
+                    devig.append(io / (io + iu))
                     continue
-            fairs.append(io)
-        if not fairs:
+            raw.append(io)
+        if devig:
+            fair = sum(devig) / len(devig)
+        elif raw:
+            fair = sum(raw) / len(raw)
+        else:
             continue
-        fair = sum(fairs) / len(fairs)
+        two_sided = len(devig)
+        reliable = (two_sided >= 1 and len(over) >= 2)
         ev = fair * best_dec - 1.0
         imp_best = _dl_imp(best_am) or 0.0
         plays.append({"player": g["player"], "team": g.get("team"), "norm": nm, "cls": cls, "label": g["label"],
                       "fair": fair, "bestAm": best_am, "bestBook": best_book, "fairAm": _dl_am_from_prob(fair),
                       "ev": ev, "edge": (fair - imp_best), "books": len(over),
+                      "reliable": reliable, "twoSided": two_sided,
                       "score": _dl_score(cls, fair)})
     return plays, books_ok, errors
 
@@ -434,7 +441,8 @@ def _dl_board(league="mlb"):
     hr_plays = [p for p in plays if p["cls"] == "hr"]
     proj_hr = sum(p["fair"] for p in hr_plays)
     top = prim_list[0] if prim_list else None
-    beste = max(plays, key=lambda x: x["ev"]) if plays else None
+    rel = [p for p in plays if p.get("reliable") and 0 < p["ev"] <= 0.25]
+    beste = max(rel, key=lambda x: x["ev"]) if rel else None
     kpis = [
         {"k": "PROJECTED HRs", "v": ("%.1f" % proj_hr), "s": (str(len(hr_plays)) + " HR markets"), "sc": "POS"},
         {"k": "PLAYS ON BOARD", "v": str(len(plays)), "s": "live markets"},
@@ -442,7 +450,7 @@ def _dl_board(league="mlb"):
         {"k": "BEST EV", "v": (("%+.1f%%" % (beste["ev"] * 100)) if beste else "-"), "s": ((beste["player"] + " " + beste["label"]) if beste else ""), "vc": "POS"},
         {"k": "BOOKS LIVE", "v": str(len(books_ok)), "s": (", ".join(b.title() for b in books_ok) or "none")},
     ]
-    ranked = sorted([p for p in plays if p["ev"] > 0], key=lambda x: -x["ev"])
+    ranked = sorted(rel, key=lambda x: -x["ev"])
     combos = []
     if len(ranked) >= 2:
         a, b = ranked[0], ranked[1]
