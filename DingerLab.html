@@ -51,8 +51,8 @@
 <div id="toast"></div>
 <script>
 /* ===================== DingerLab — Stadium Night ===================== */
-var APP_VERSION = "v7.4";
-var APP_UPDATED = "v7.4 — Server serves DingerLab.html and the Games header projected-HR total is computed live";
+var APP_VERSION = "v7.6";
+var APP_UPDATED = "v7.6 \u2014 ULX Accountability Sheet (2-leg + 3-leg) wired into its own tab, persists per day, slate-aware +800 counter";
 
 var CFG = { backend: "https://mlb-slate.onrender.com" };
 var AC="#ff8a4c", POS="#35d0c0", GOLD="#ffc24d", PINK="#ff5ea8", PURPLE="#a78bfa", WARN="#ff6b6b";
@@ -108,6 +108,7 @@ var NAV = [
   {id:"research",label:"Research",icon:"\uD83D\uDD0E"},
   {id:"track",label:"Tracking",icon:"\u25C8"},
   {id:"tools",label:"Tools",icon:"\u2699"},
+  {id:"ulx",label:"ULX",icon:"\u2611"},
   {id:"live",label:"Live",icon:"\u25C9"}
 ];
 
@@ -507,10 +508,92 @@ function viewRouter(){
     case"research":return viewResearch();
     case"track":return viewTrack();
     case"tools":return viewTools();
+    case"ulx":return viewULX();
     case"live":return viewLive();
     default:return viewDashboard();
   }
 }
+
+/* ===================== ULX SHEET ===================== */
+function ulxDay(){var d=new Date();return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());}
+function ulxLoad(){try{var r=localStorage.getItem("ulx-"+ulxDay());return r?JSON.parse(r):null;}catch(e){return null;}}
+function ulxSave(){try{localStorage.setItem("ulx-"+ulxDay(),JSON.stringify(S.ulx));}catch(e){}}
+function ulxInit(){
+  if(S.ulx) return;
+  var d=ulxLoad();
+  S.ulx=d||{mode:"2leg",
+    s1:{advance:false,remove:false,exception:false},
+    s2:{smasher:false,young:false,veteran:false,pullside:false,lowlineup:false,athletic:false},
+    s3:{platoon:false,flyballs:false,hard:false,issues:false,bullpen:false},
+    s4:{wind:false,warm:false,park:false,goodhr:false,roof:false},
+    s5:{top6:false,bottom:false},
+    s6:{pass:false},
+    pairs:{sharp:"",bridge:"",deep:""},
+    rm:{famous:false,yesterday:false,twitter:false,teammates:false,nolineup:false,oddshigh:false},
+    score:{names:"",final:"",slips:"",hrs:"",wins:"",mistakes:""},
+    mist:{badread:false,badpair:false,weather:false,wrongarch:false,chased:false,noprocess:false,other:""},
+    followed:null};
+}
+function ulxChk(k,checked,label){
+  return "<label data-act=\"ulxtoggle\" data-k=\""+k+"\" style=\"display:flex;align-items:flex-start;gap:9px;font-size:13px;color:#cdd3df;cursor:pointer;padding:4px 0;line-height:1.35\"><span style=\"flex:0 0 16px;width:16px;height:16px;border-radius:4px;border:1.5px solid "+(checked?AC:"#3b4254")+";background:"+(checked?AC:"transparent")+";display:inline-flex;align-items:center;justify-content:center;color:#0a0c11;font-size:11px;font-weight:900;margin-top:1px\">"+(checked?"\u2713":"")+"</span><span>"+label+"</span></label>";
+}
+function ulxCard(num,title,body,footer,footCol){
+  return "<div style=\"background:var(--surface);border:1px solid var(--line2);border-radius:14px;padding:14px;display:flex;flex-direction:column;min-height:230px\"><div style=\"display:flex;align-items:center;gap:9px;margin-bottom:10px\"><span style=\"width:24px;height:24px;border-radius:6px;background:"+AC+";color:#0a0c11;font-weight:900;font-size:13px;display:inline-flex;align-items:center;justify-content:center\">"+num+"</span><span style=\"font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#eef1f6\">"+title+"</span></div><div style=\"flex:1\">"+body+"</div>"+(footer?"<div style=\"margin-top:10px;padding-top:9px;border-top:1px dashed #2a3140;font-size:11.5px;color:"+(footCol||"#7b8597")+";font-weight:700;letter-spacing:.03em;text-transform:uppercase\">"+footer+"</div>":"")+"</div>";
+}
+function ulxNumIn(k,val,label){
+  return "<div style=\"display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #1f2532;font-size:12.5px;color:#cdd3df\"><span>"+label+"</span><input data-ulx=\"score."+k+"\" value=\""+esc(val||"")+"\" style=\"width:70px;background:transparent;border:none;border-bottom:1px solid #3b4254;color:#eef1f6;text-align:right;font-family:'Space Grotesk';font-size:13px;outline:none\"></div>";
+}
+function viewULX(){
+  ulxInit();
+  var U=S.ulx, is3=(U.mode==="3leg");
+  var slate=Object.keys(PLAYERS||{}).length;
+  var pool=0;
+  Object.keys(PLAYERS||{}).forEach(function(id){var p=PLAYERS[id];var am=parseAm(p.best||p.odds);if(am!=null&&am>=800)pool++;});
+  var dlistOpts="";
+  Object.keys(PLAYERS||{}).forEach(function(id){dlistOpts+="<option value=\""+esc(PLAYERS[id].name)+"\">";});
+  var dlist="<datalist id=\"ulxPlayers\">"+dlistOpts+"</datalist>";
+
+  var head="<div style=\"display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:18px;gap:18px;flex-wrap:wrap\"><div><div style=\"font-size:11px;letter-spacing:.14em;color:"+AC+";font-weight:700;margin-bottom:6px\">ACCOUNTABILITY SHEET</div><h1 style=\"margin:0;font-size:28px;font-weight:700;letter-spacing:-.02em\">ULX "+(is3?"3-Leg":"2-Leg")+" HR Sheet</h1><div style=\"margin-top:6px;font-size:12px;color:#7b8597;font-style:italic\">Process over emotions \u00b7 Filtration over volume \u00b7 Value over name</div></div><div style=\"display:flex;gap:7px;align-items:center\"><span data-act=\"ulxmode\" data-m=\"2leg\" class=\"chip\" style=\"font-size:12.5px;font-weight:700;padding:8px 14px;border-radius:9px;background:"+(!is3?AC:"var(--surface)")+";"+(!is3?"color:#0a0c11":"border:1px solid rgba(255,255,255,.1);color:#9aa3b2")+";cursor:pointer\">2-Leg</span><span data-act=\"ulxmode\" data-m=\"3leg\" class=\"chip\" style=\"font-size:12.5px;font-weight:700;padding:8px 14px;border-radius:9px;background:"+(is3?AC:"var(--surface)")+";"+(is3?"color:#0a0c11":"border:1px solid rgba(255,255,255,.1);color:#9aa3b2")+";cursor:pointer\">3-Leg</span><span data-act=\"ulxreset\" style=\"font-size:11px;color:#7b8597;cursor:pointer;padding:8px 10px;border:1px solid #2a3140;border-radius:8px\">Reset today</span></div></div>";
+
+  var s1=ulxCard("1","Board Filtration","<div style=\"text-align:center;font-size:32px;font-weight:800;color:"+AC+";letter-spacing:-.02em;line-height:1\">"+pool+"<span style=\"font-size:14px;color:#7b8597;font-weight:600;margin-left:8px\">of "+slate+"</span></div><div style=\"text-align:center;font-size:11px;color:#7b8597;margin-top:4px\">players \u2265 +800 on the live board</div><div style=\"margin-top:12px\"><div style=\"font-size:11px;color:"+WARN+";font-weight:700;margin-bottom:4px\">IF UNDER +800</div>"+ulxChk("s1.remove",U.s1.remove,"Remove from pool")+ulxChk("s1.exception",U.s1.exception,"Absolute exception spot only")+"<div style=\"font-size:11px;color:"+POS+";font-weight:700;margin-top:8px;margin-bottom:4px\">IF +800 OR HIGHER</div>"+ulxChk("s1.advance",U.s1.advance,"Advance to next round")+"</div>","Goal: cut 40+ names to 15-20");
+
+  var s2=ulxCard("2","Archetype Check","<div style=\"font-size:12px;color:#9aa3b2;margin-bottom:6px\">Does he fit at least ONE?</div>"+ulxChk("s2.smasher",U.s2.smasher,"Same-handed smasher")+ulxChk("s2.young",U.s2.young,"Young aggressive bat")+ulxChk("s2.veteran",U.s2.veteran,"Veteran barrel guy")+ulxChk("s2.pullside",U.s2.pullside,"Pull-side flyball hitter")+ulxChk("s2.lowlineup",U.s2.lowlineup,"Low-lineup power bat")+ulxChk("s2.athletic",U.s2.athletic,"Athletic / fast-twitch pop"),"If none apply: \u2717 REMOVE",WARN);
+
+  var s3=ulxCard("3","Matchup Check",ulxChk("s3.platoon",U.s3.platoon,"Platoon advantage")+ulxChk("s3.flyballs",U.s3.flyballs,"Pitcher gives up fly balls")+ulxChk("s3.hard",U.s3.hard,"Pitcher gives up hard contact")+ulxChk("s3.issues",U.s3.issues,"Pitcher has HR issues")+ulxChk("s3.bullpen",U.s3.bullpen,"Weak bullpen behind him"),"Need at least 2 checks to advance",POS);
+
+  var s4=ulxCard("4","Environment Check",ulxChk("s4.wind",U.s4.wind,"Wind out")+ulxChk("s4.warm",U.s4.warm,"Warm weather")+ulxChk("s4.park",U.s4.park,"Small park")+ulxChk("s4.goodhr",U.s4.goodhr,"Good HR environment")+ulxChk("s4.roof",U.s4.roof,"Roof open"),"If environment sucks: \u2717 DOWNGRADE",WARN);
+
+  var s5=ulxCard("5","Lineup Check","<div style=\"font-size:12px;color:#9aa3b2;margin-bottom:6px\">Batting position</div>"+ulxChk("s5.top6",U.s5.top6,"Batting 1-6 (preferred)")+"<div style=\"font-size:11px;color:#7b8597;text-align:center;margin:6px 0\">OR</div>"+ulxChk("s5.bottom",U.s5.bottom,"Batting 7-9 with legit power"),"Need a path to 4+ plate appearances",POS);
+
+  var s6=ulxCard("6","ULX Value Test","<div style=\"font-size:13px;color:#cdd3df;font-style:italic;text-align:center;padding:14px 4px;line-height:1.5\">\u201CWould I still like this guy if nobody knew his name?\u201D</div>"+ulxChk("s6.pass",U.s6.pass,"Yes \u2014 keep him in the pool"),"If NO: \u2717 REMOVE \u00b7 Eliminates public bias",WARN);
+
+  var steps="<div style=\"display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin-bottom:14px\">"+s1+s2+s3+s4+"</div><div style=\"display:grid;grid-template-columns:repeat(2,1fr);gap:11px;margin-bottom:18px\">"+s5+s6+"</div>";
+
+  var legCard=function(title,col,desc,range,traits,key){
+    return "<div style=\"flex:1;background:#11141c;border:1px solid "+col+"66;border-radius:11px;padding:13px;min-width:0\"><div style=\"font-size:11px;letter-spacing:.06em;font-weight:700;color:"+col+";margin-bottom:4px\">"+title+"</div><div style=\"font-size:12px;color:#9aa3b2;margin-bottom:9px;line-height:1.4\">"+desc+"</div><div style=\"font-size:11px;color:#7b8597;margin-bottom:3px\">Usually:</div><div style=\"font-size:12px;color:#cdd3df;line-height:1.6\">"+range+"<br>"+traits+"</div><div style=\"margin-top:11px\"><input data-ulx=\"pairs."+key+"\" list=\"ulxPlayers\" value=\""+esc(U.pairs[key]||"")+"\" placeholder=\"Player name\" style=\"width:100%;background:#0a0c11;border:1px solid #2a3140;border-radius:8px;padding:8px 10px;color:#eef1f6;font-size:13px;outline:none;box-sizing:border-box\"></div></div>";
+  };
+  var legs=legCard("LEG 1 \u2014 SHARP LEG",POS,"The one you would least be surprised homers","+800 to +1000 \u00b7 best matchup","Best environment \u00b7 safe power profile","sharp");
+  if(is3) legs+=legCard("LEG 2 \u2014 BRIDGE LEG",PURPLE,"Middle-confidence value (3-leg only)","+1000 to +1500 \u00b7 solid archetype","Decent matchup \u00b7 some hidden upside","bridge");
+  legs+=legCard("LEG "+(is3?"3":"2")+" \u2014 DEEP SPACE LEG",PINK,"The one the public ignores",(is3?"+1500 to +2500":"+1000 to +1800")+" \u00b7 hidden power","Weird archetype \u00b7 low ownership","deep");
+  var pairing="<div style=\"background:var(--surface);border:1px solid var(--line2);border-radius:14px;padding:16px;margin-bottom:18px\"><div style=\"font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:"+GOLD+";text-align:center;margin-bottom:14px\">\u2605 Pairing Rules \u2605</div><div style=\"display:flex;gap:11px;align-items:stretch;flex-wrap:wrap\">"+legs+"</div><div style=\"margin-top:12px;text-align:center;font-size:11.5px;color:"+GOLD+";font-weight:700;letter-spacing:.04em\">GOAL: BALANCE UPSIDE + VALUE \u2014 NOT JUST PICKING "+(is3?"THREE":"TWO")+" RANDOM NAMES</div></div>";
+
+  var rmItem=function(k,label){return "<div style=\"flex:1;min-width:100px;text-align:center\"><label data-act=\"ulxtoggle\" data-k=\"rm."+k+"\" style=\"display:block;cursor:pointer\"><div style=\"width:44px;height:44px;border-radius:50%;border:2px solid "+(U.rm[k]?WARN:"#3b4254")+";background:"+(U.rm[k]?WARN+"22":"transparent")+";display:inline-flex;align-items:center;justify-content:center;font-size:20px;color:"+(U.rm[k]?WARN:"#7b8597")+";margin:0 auto 5px\">\u2717</div><div style=\"font-size:11px;color:#9aa3b2;line-height:1.35\">"+label+"</div></label></div>";};
+  var removals="<div style=\"background:#1a0d10;border:1px solid "+WARN+"40;border-radius:14px;padding:14px 16px;margin-bottom:18px\"><div style=\"text-align:center;font-size:12px;font-weight:700;letter-spacing:.08em;color:"+WARN+";margin-bottom:12px\">\u2014 AUTOMATIC REMOVALS \u2014</div><div style=\"display:flex;gap:8px;flex-wrap:wrap;justify-content:space-around\">"+rmItem("famous","Famous name")+rmItem("yesterday","Homered yesterday")+rmItem("twitter","Twitter loves him")+rmItem("teammates","Two teammates just because")+rmItem("nolineup","No lineup check")+rmItem("oddshigh","Only because odds are high")+"</div></div>";
+
+  var scorecard="<div style=\"background:var(--surface);border:1px solid var(--line2);border-radius:14px;padding:14px\"><div style=\"font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#eef1f6;margin-bottom:10px\">Daily Scorecard</div>"+ulxNumIn("names",U.score.names,"Names considered")+"<div style=\"display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #1f2532;font-size:12.5px;color:#cdd3df\"><span>After +800 filter (auto)</span><span style=\"font-family:'Space Grotesk';color:"+AC+";font-weight:700\">"+pool+"</span></div>"+ulxNumIn("final",U.score.final,"Final pool")+ulxNumIn("slips",U.score.slips,(is3?"3":"2")+"-leg slips played")+ulxNumIn("hrs",U.score.hrs,"HRs hit")+ulxNumIn("wins",U.score.wins,"Winning pairings")+ulxNumIn("mistakes",U.score.mistakes,"Mistakes made")+"</div>";
+
+  var mistakes="<div style=\"background:var(--surface);border:1px solid var(--line2);border-radius:14px;padding:14px\"><div style=\"font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#eef1f6;margin-bottom:10px\">Mistakes / reasons for losses</div>"+ulxChk("mist.badread",U.mist.badread,"Bad read")+ulxChk("mist.badpair",U.mist.badpair,"Bad pairing")+ulxChk("mist.weather",U.mist.weather,"Weather")+ulxChk("mist.wrongarch",U.mist.wrongarch,"Wrong archetype")+ulxChk("mist.chased",U.mist.chased,"Chased name value")+ulxChk("mist.noprocess",U.mist.noprocess,"Didn't follow process")+"<div style=\"margin-top:8px\"><input data-ulx=\"mist.other\" value=\""+esc(U.mist.other||"")+"\" placeholder=\"Other...\" style=\"width:100%;background:#11141c;border:1px solid #2a3140;border-radius:8px;padding:7px 9px;color:#eef1f6;font-size:13px;outline:none;box-sizing:border-box\"></div></div>";
+
+  var folYes=U.followed===true, folNo=U.followed===false;
+  var tracker="<div style=\"background:linear-gradient(180deg,#1c1a14,#13110d);border:1px solid "+GOLD+"66;border-radius:14px;padding:18px;text-align:center\"><div style=\"font-size:12px;font-weight:700;letter-spacing:.06em;color:"+GOLD+";margin-bottom:8px\">THE BIGGEST THING TO TRACK</div><div style=\"font-size:16px;color:#eef1f6;margin-bottom:14px;line-height:1.4\">Did I follow the process today?</div><div style=\"display:flex;gap:9px;justify-content:center;margin-bottom:10px\"><span data-act=\"ulxfollow\" data-v=\"yes\" class=\"chip\" style=\"padding:9px 18px;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;background:"+(folYes?POS:"transparent")+";color:"+(folYes?"#0a0c11":POS)+";border:1.5px solid "+POS+"\">YES</span><span data-act=\"ulxfollow\" data-v=\"no\" class=\"chip\" style=\"padding:9px 18px;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;background:"+(folNo?WARN:"transparent")+";color:"+(folNo?"#0a0c11":WARN)+";border:1.5px solid "+WARN+"\">NO</span></div><div style=\"font-size:11.5px;color:"+GOLD+";font-style:italic;letter-spacing:.04em\">Stay disciplined. Trust the process. Let value work.</div></div>";
+
+  var bottom="<div style=\"display:grid;grid-template-columns:1fr 1fr 1fr;gap:11px;margin-bottom:14px\">"+scorecard+mistakes+tracker+"</div>";
+
+  var footer="<div style=\"display:flex;gap:24px;justify-content:center;padding:14px 0;color:#9aa3b2;font-size:12px;font-weight:600;letter-spacing:.04em;flex-wrap:wrap\"><span>\uD83E\uDDE0 LESS NAMES \u00b7 LESS NOISE</span><span>\uD83D\uDCCA BETTER FILTRATION \u00b7 BETTER VALUE</span><span style=\"color:"+GOLD+"\">\uD83D\uDC51 FIND THE RIGHT HOMERS</span></div>";
+
+  return "<div class=\"rise\">"+head+steps+pairing+removals+bottom+footer+dlist+"</div>";
+}
+
 function render(){
   var main="<main style=\"padding:22px 26px 60px;min-width:0;overflow:auto\">"+viewRouter()+"</main>";
   var shell="<div style=\"min-height:100vh;background:radial-gradient(1200px 600px at 78% -8%, rgba(255,138,76,.10), transparent 60%),radial-gradient(900px 500px at 6% 4%, rgba(53,208,192,.07), transparent 55%),#0a0c11;display:flex;flex-direction:column\">"+headerEl()+"<div class=\"bodygrid\" style=\"display:grid;grid-template-columns:208px minmax(0,1fr) 320px;gap:0;flex:1;min-height:0\">"+railEl()+main+slipEl()+"</div></div>"+(S.drawer?drawerEl():"");
@@ -702,8 +785,13 @@ document.addEventListener("click",function(e){
   else if(a==="saveparlay"){ if(S.slip.length){ var rc=recompute(); var pl={id:"p"+dlNowMs()+"_"+Math.floor(Math.random()*1e4),savedAt:dlNowMs(),result:"pending",stake:S.stake,odds:fmtAm(decToAm(rc.dec)),sub:((rc.prob*100).toFixed(1)+"% win"),title:S.slip.map(function(l){return l.name+" \u2014 "+l.market;}).join(" \u00b7 "),legData:dlLegData(S.slip)}; try{SAVED.unshift(dlMapSaved([pl])[0]);}catch(e){} dlPersist(pl); toast("Saved parlay to Tracking"); S.tab="track"; render(); } }
   else if(a==="track"){ toast("Sent to Tracking"); } else if(a==="trackcombo"){ var b=CURBUILDS[+el.dataset.i]; if(b){ var rl=b.rawLegs||(b.legs||[]).map(function(l){var nm=String(l[0]).split(" \u2014 ")[0];var lb=String(l[0]).split(" \u2014 ")[1]||"HR";return {name:nm,label:lb,odds:l[1]};}); var parlay={id:"p"+dlNowMs()+"_"+Math.floor(Math.random()*1e4),savedAt:dlNowMs(),result:"pending",stake:S.stake,odds:b.odds,sub:(b.win+" win \u00b7 "+b.ev),title:(b.legs||[]).map(function(l){return l[0];}).join(" \u00b7 "),legData:dlLegData(rl)}; try{SAVED.unshift(dlMapSaved([parlay])[0]);}catch(e){} dlPersist(parlay); toast("Saved "+b.legs.length+"-leg parlay to Tracking"); S.tab="track"; render(); } }
   else if(a==="toolcard"){ toast(el.dataset.v); }
+  else if(a==="ulxmode"){ if(!S.ulx) ulxInit(); S.ulx.mode=el.dataset.m; ulxSave(); render(); }
+  else if(a==="ulxtoggle"){ if(!S.ulx) ulxInit(); var _up=el.dataset.k.split("."); if(S.ulx[_up[0]]){ S.ulx[_up[0]][_up[1]]=!S.ulx[_up[0]][_up[1]]; ulxSave(); render(); } }
+  else if(a==="ulxfollow"){ if(!S.ulx) ulxInit(); S.ulx.followed=(el.dataset.v==="yes"); ulxSave(); render(); }
+  else if(a==="ulxreset"){ try{localStorage.removeItem("ulx-"+ulxDay());}catch(e){} S.ulx=null; ulxInit(); render(); toast("Reset today's ULX sheet"); }
 });
 document.addEventListener("input",function(e){
+  if(e.target&&e.target.dataset&&e.target.dataset.ulx){ var _up=e.target.dataset.ulx.split("."); if(S.ulx&&S.ulx[_up[0]]){ S.ulx[_up[0]][_up[1]]=e.target.value; ulxSave(); } }
   if(e.target&&e.target.id==="stakeInput"){
     S.stake=Math.max(0,parseFloat(e.target.value)||0);
     var r=recompute(); var win=S.stake*(r.dec-1);

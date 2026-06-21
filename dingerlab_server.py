@@ -533,9 +533,14 @@ def _dl_board(league="mlb"):
                         _proj_val += _qq.get("fair") or 0.0
                 _proj = ("%.1f" % _proj_val) if _proj_val else ""
                 _budget = (time.time() - _t0) < 14
-                _wx = {"wind": "", "windc": "", "temp": "", "roof": ("Closed" if (_pf and _pf[3]) else "Open")}
-                if _pf and _budget:
-                    _wx = _dl_weather(_pf[1], _pf[2], _pf[3])
+                _roofb = bool(_pf and _pf[3])
+                _wx = {"wind": "", "windc": "", "temp": "", "roof": ("Closed" if _roofb else "Open")}
+                if _budget:
+                    _mlbwx = _dl_mlb_weather(pk, _roofb)
+                    if _mlbwx and (_mlbwx.get("temp") or _mlbwx.get("wind")):
+                        _wx = _mlbwx
+                    elif _pf:
+                        _wx = _dl_weather(_pf[1], _pf[2], _pf[3])
                 _hp_id = ((((g.get("teams") or {}).get("home") or {}).get("probablePitcher") or {}).get("id"))
                 _ap_id = ((((g.get("teams") or {}).get("away") or {}).get("probablePitcher") or {}).get("id"))
                 _pweak = False
@@ -736,6 +741,37 @@ def _dl_weather(lat, lon, roof):
             out["temp"] = ("%d\u00b0" % int(round(t)))
     except Exception:
         pass
+    _DL_WX_CACHE[key] = out
+    return out
+
+
+def _dl_mlb_weather(game_pk, roof):
+    """Primary weather source: MLB's own reported ballpark weather/wind.
+    Returns None when MLB has not posted it yet (then caller falls back)."""
+    key = ("mlb", game_pk, datetime.utcnow().strftime("%Y-%m-%d-%H"))
+    if key in _DL_WX_CACHE:
+        return _DL_WX_CACHE[key]
+    out = None
+    try:
+        j = _dl_jget("https://statsapi.mlb.com/api/v1.1/game/%s/feed/live" % game_pk,
+                     params={"fields": "gameData,weather,condition,temp,wind"}, timeout=8)
+        w = (((j.get("gameData") or {}).get("weather")) or {})
+        temp = w.get("temp")
+        wind = w.get("wind") or ""
+        cond = (w.get("condition") or "")
+        if temp or wind:
+            o = {"wind": "", "windc": "", "temp": "", "roof": ("Closed" if roof else "Open")}
+            if temp:
+                o["temp"] = ("%s\u00b0" % str(temp).strip())
+            if ("roof" in cond.lower()) or ("dome" in cond.lower()):
+                o["roof"] = "Closed"
+            if wind and ("mph" in wind.lower()):
+                o["wind"] = wind.strip()
+            elif o["roof"] == "Closed":
+                o["wind"] = "Calm"
+            out = o
+    except Exception:
+        out = None
     _DL_WX_CACHE[key] = out
     return out
 
