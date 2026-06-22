@@ -146,8 +146,8 @@
 <div id="toast"></div>
 <script>
 /* ===================== DingerLab — Stadium Night ===================== */
-var APP_VERSION = "v7.9";
-var APP_UPDATED = "v7.9 \u2014 Mobile optimization: responsive header, horizontal scroll tab bar, single-column grids, full-width slip + drawer, touch-friendly tap targets, iOS zoom-safe inputs";
+var APP_VERSION = "v8.0";
+var APP_UPDATED = "v8.0 \u2014 Live HR feed wired to MLB live game data with on/off-board tagging, 60s auto-poll for odds + live HRs with toggle and last-updated stamp, cross-device sync via your Render server, and player search across all priced hitters";
 
 var CFG = { backend: "https://mlb-slate.onrender.com" };
 var AC="#ff8a4c", POS="#35d0c0", GOLD="#ffc24d", PINK="#ff5ea8", PURPLE="#a78bfa", WARN="#ff6b6b";
@@ -276,16 +276,12 @@ var STEAM = [
 var SLIDERS = [["Season regression",62,"0.62"],["Recent-form weight",40,"0.40"],["Park / weather factor",75,"0.75"]];
 var GUARDS2 = [["Max slips per player","2"],["Max daily stake","$120"],["Kelly fraction","\u00BC"],["Min edge to bet","+3.0%",POS]];
 var TOOLCARDS = [["\u270D\uFE0F","Manual entry","Add a game or prop by hand when a book hasn't posted."],["\u2B07\uFE0F","Export","Feature store CSV / JSON and frozen board snapshots."],["\uD83E\uDDEA","Recalibrate","Re-fit probabilities from your graded results."],["\uD83D\uDCD0","Methodology","Poisson rate model + Gaussian-copula correlation."]];
-var LIVE_EV = [
-  {ic:"\uD83D\uDCA5",name:"Aaron Judge",det:"· solo HR · T5",sub:"114.2 mph · 441 ft · NYY 3\u20131 BOS",on:true,bd:"rgba(255,138,76,.28)"},
-  {ic:"\uD83D\uDCA5",name:"Yordan Alvarez",det:"· 2-run HR · B3",sub:"109.8 mph · 408 ft · HOU 4\u20130 SEA",on:true,bd:"rgba(255,138,76,.28)"},
-  {ic:"\u26BE",name:"Cal Raleigh",det:"· solo HR · T7",sub:"106.1 mph · 397 ft · SEA 1\u20134 HOU",on:false,bd:"rgba(255,255,255,.07)"},
-  {ic:"\u26BE",name:"Marcell Ozuna",det:"· solo HR · B6",sub:"110.5 mph · 419 ft · ATL 2\u20132 NYM",on:false,bd:"rgba(255,255,255,.07)"}
-];
+var LIVE_EV = [];
+var LIVE_LAST_MS = 0;
 
 /* ===================== STATE ===================== */
 var S = {
-  tab:"dashboard", drawer:null,
+  tab:"dashboard", drawer:null, autopoll:false, lastPoll:0, search:"",
   slip:[ {name:"Aaron Judge",market:"To hit a HR",book:"DraftKings",american:"+340",prob:0.214},
          {name:"Kyle Schwarber",market:"1+ Hit",book:"FanDuel",american:"\u2212135",prob:0.60} ],
   stake:25,
@@ -670,7 +666,7 @@ function viewData(){
     return "<tr style=\"border-top:1px solid rgba(255,255,255,.05)\"><td style=\"padding:11px 14px;font-family:'Hanken Grotesk';font-weight:600\">"+esc(r[0])+"</td><td style=\"padding:11px 10px;color:#9aa3b2\">"+esc(r[1])+"</td><td style=\"padding:11px 10px;text-align:right\">"+r[2]+"</td><td style=\"padding:11px 10px;text-align:right;color:#9aa3b2\">"+r[3]+"</td><td style=\"padding:11px 10px;text-align:right\">"+r[4]+"</td><td style=\"padding:11px 10px;text-align:right;color:"+edgec+"\">"+r[5]+"</td><td style=\"padding:11px 10px;text-align:right;color:"+evc+"\">"+r[6]+"</td><td style=\"padding:11px 10px;text-align:right;color:"+scorec+"\">"+r[7]+"</td><td style=\"padding:11px 10px;font-family:'Hanken Grotesk';font-size:12px;color:"+powerc+"\">"+esc(r[8])+"</td><td style=\"padding:11px 14px;font-family:'Hanken Grotesk';font-size:12px;color:"+fadec+"\">"+esc(r[9])+"</td></tr>";
   }).join("");
   var table="<div style=\"background:var(--surface);border:1px solid var(--line2);border-radius:16px;overflow:hidden\"><div style=\"overflow-x:auto\"><table style=\"width:100%;border-collapse:collapse;font-size:13px;min-width:760px\"><thead><tr style=\"background:var(--surface2);color:#7b8597;text-align:left\">"+th+"</tr></thead><tbody style=\"font-family:'Space Grotesk';font-variant-numeric:tabular-nums\">"+rows+"</tbody></table></div></div>";
-  return "<div class=\"rise\">"+headBlock("DATA INTELLIGENCE","Player-market feature store","Every priced player-market as a model-ready row — probability, fair odds, edge, EV, power DNA and due signals. Export for calibration.")+statRow+table+"</div>";
+  return "<div class=\"rise\">"+headBlock("DATA INTELLIGENCE","Player-market feature store","Every priced player-market as a model-ready row — probability, fair odds, edge, EV, power DNA and due signals. Export for calibration.")+statRow+dlPlayerSearch()+table+"</div>";
 }
 
 /* ===================== TRACKING ===================== */
@@ -696,16 +692,26 @@ function viewTools(){
   var guards=GUARDS2.map(function(g){return "<div style=\"display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-radius:11px;background:var(--surface2)\"><span style=\"font-size:13px;color:#c3cad6\">"+g[0]+"</span><span style=\"font-family:'Space Grotesk';font-weight:700;font-size:16px"+(g[2]?";color:"+g[2]:"")+"\">"+g[1]+"</span></div>";}).join("");
   var exposure="<div style=\"background:var(--surface);border:1px solid var(--line2);border-radius:16px;padding:18px\"><div style=\"display:flex;align-items:center;gap:9px;margin-bottom:14px\"><span style=\"font-size:17px\">\uD83C\uDFAF</span><div style=\"font-family:'Space Grotesk';font-weight:700;font-size:15px\">Exposure guardrails</div></div><div style=\"display:flex;flex-direction:column;gap:13px\">"+guards+"</div></div>";
   var cards=TOOLCARDS.map(function(c){return "<div data-act=\"toolcard\" data-v=\""+esc(c[1])+"\" class=\"hovcard\" style=\"background:var(--surface);border:1px solid var(--line2);border-radius:16px;padding:16px;cursor:pointer\"><div style=\"font-size:22px;margin-bottom:9px\">"+c[0]+"</div><div style=\"font-family:'Space Grotesk';font-weight:700;font-size:14.5px\">"+esc(c[1])+"</div><div style=\"font-size:12.5px;color:#8b94a6;margin-top:4px;line-height:1.4\">"+esc(c[2])+"</div></div>";}).join("");
-  return "<div class=\"rise\">"+headBlock("TOOLS & METHODOLOGY","Controls & exports","Manual entry, model tuning, exposure guardrails, exports and methodology — the deeper machinery, out of the main flow.")+"<div style=\"display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-bottom:14px\">"+settings+exposure+"</div><div style=\"display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px\">"+cards+"</div></div>";
+  return "<div class=\"rise\">"+headBlock("TOOLS & METHODOLOGY","Controls & exports","Manual entry, model tuning, exposure guardrails, exports and methodology — the deeper machinery, out of the main flow.")+"<div style=\"display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-bottom:14px\">"+settings+exposure+"</div><div style=\"display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px\">"+dlSyncCard()+cards+"</div></div>";
 }
 
 /* ===================== LIVE ===================== */
 function viewLive(){
-  var head="<div style=\"display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px\"><div><div style=\"font-size:11px;letter-spacing:.14em;color:var(--ac);font-weight:700;margin-bottom:6px\">LIVE HR FEED</div><h1 style=\"margin:0;font-size:28px;font-weight:700;letter-spacing:-.02em\">Dingers as they happen</h1></div><div style=\"display:flex;align-items:center;gap:8px;padding:8px 13px;border-radius:10px;background:rgba(53,208,192,.08);border:1px solid rgba(53,208,192,.22)\"><span style=\"width:7px;height:7px;border-radius:50%;background:"+POS+";animation:dlpulse 1.6s infinite\"></span><span style=\"font-size:12.5px;font-weight:600;color:"+POS+"\">Polling · 6 games live · 8s ago</span></div></div>";
-  var ev=LIVE_EV.map(function(e){var badge=e.on?"<span style=\"font-size:10.5px;font-weight:700;padding:4px 9px;border-radius:7px;background:rgba(53,208,192,.14);color:"+POS+"\">on board ✓</span>":"<span style=\"font-size:10.5px;font-weight:700;padding:4px 9px;border-radius:7px;background:rgba(255,255,255,.06);color:#9aa3b2\">off board</span>";return "<div style=\"display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:14px;background:var(--surface);border:1px solid "+e.bd+"\"><div style=\"font-size:24px\">"+e.ic+"</div><div style=\"flex:1;min-width:0\"><div style=\"font-weight:700;font-size:15px\">"+esc(e.name)+" <span style=\"font-size:12px;color:#7b8597;font-weight:500\">"+esc(e.det)+"</span></div><div style=\"font-size:12px;color:#8b94a6;margin-top:2px\">"+esc(e.sub)+"</div></div>"+badge+"</div>";}).join("");
-  var tracker="<div style=\"background:var(--surface);border:1px solid var(--line2);border-radius:16px;padding:18px;text-align:center;margin-bottom:11px\"><div style=\"font-size:12px;color:#7b8597;font-weight:600\">BOARD HRs HIT</div><div style=\"font-family:'Space Grotesk';font-size:40px;font-weight:700;margin:6px 0;color:var(--ac)\">2<span style=\"color:#3a4150;font-size:28px\"> / 7</span></div><div style=\"height:8px;border-radius:8px;background:rgba(255,255,255,.08);overflow:hidden\"><div style=\"width:29%;height:100%;background:linear-gradient(90deg,var(--ac),#ff5ea8)\"></div></div><div style=\"font-size:12px;color:#8b94a6;margin-top:10px\">5 still pending across live games</div></div>";
-  var stats=[["Predicted today","7 HRs",""],["Hit so far","2",POS],["Slate HRs total","4",""]].map(function(s){return "<div style=\"display:flex;justify-content:space-between;font-size:12.5px;padding:9px 12px;border-radius:10px;background:var(--surface2)\"><span style=\"color:#9aa3b2\">"+s[0]+"</span><span style=\"font-family:'Space Grotesk';font-weight:700"+(s[2]?";color:"+s[2]:"")+"\">"+s[1]+"</span></div>";}).join("");
-  return "<div class=\"rise\">"+head+"<div style=\"display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,.6fr);gap:18px\"><div>"+sectHead("\uD83D\uDCA5","HR events")+"<div style=\"display:flex;flex-direction:column;gap:10px\">"+ev+"</div></div><div>"+sectHead("\uD83C\uDFAF","Hit tracker")+tracker+"<div style=\"display:flex;flex-direction:column;gap:8px\">"+stats+"</div></div></div></div>";
+  var pollOn=!!S.autopoll;
+  var agoTxt=dlAgo(LIVE_LAST_MS);
+  var statusTxt=pollOn?("Auto-poll on \u00b7 updated "+agoTxt):(LIVE_LAST_MS?("Auto-poll off \u00b7 last "+agoTxt):"Auto-poll off \u00b7 not refreshed yet");
+  var statusCol=pollOn?POS:"#9aa3b2";
+  var statusBg=pollOn?"rgba(53,208,192,.08)":"var(--surface)";
+  var statusBd=pollOn?"rgba(53,208,192,.22)":"var(--line)";
+  var dot=pollOn?("<span style='width:7px;height:7px;border-radius:50%;background:"+POS+";animation:dlpulse 1.6s infinite'></span>"):"<span style='width:7px;height:7px;border-radius:50%;background:#7b8597'></span>";
+  var toggle="<button data-act='togglepoll' class='btng' style='padding:8px 12px;border:1px solid rgba(255,255,255,.14);border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;color:"+(pollOn?"#0a0c11":"#c3cad6")+";background:"+(pollOn?"var(--ac)":"transparent")+"'>"+(pollOn?"\u23f8 Auto-poll on":"\u25b6 Auto-poll off")+"</button>";
+  var refresh="<button data-act='refreshlive' class='btng' style='padding:8px 12px;border:1px solid rgba(255,255,255,.14);border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;color:#c3cad6;background:transparent'>"+(S.liveLoading?"\u21bb Refreshing":"\u21bb Refresh now")+"</button>";
+  var head="<div style='display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px'><div><div style='font-size:11px;letter-spacing:.14em;color:var(--ac);font-weight:700;margin-bottom:6px'>LIVE HR FEED</div><h1 style='margin:0;font-size:28px;font-weight:700;letter-spacing:-.02em'>Dingers as they happen</h1></div><div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap'>"+toggle+refresh+"<div style='display:flex;align-items:center;gap:8px;padding:8px 13px;border-radius:10px;background:"+statusBg+";border:1px solid "+statusBd+"'>"+dot+"<span style='font-size:12.5px;font-weight:600;color:"+statusCol+"'>"+esc(statusTxt)+"</span></div></div></div>";
+  var ev=LIVE_EV.length?LIVE_EV.map(function(e){var badge=e.on?("<span style='font-size:10.5px;font-weight:700;padding:4px 9px;border-radius:7px;background:rgba(53,208,192,.14);color:"+POS+"'>on board \u2713</span>"):"<span style='font-size:10.5px;font-weight:700;padding:4px 9px;border-radius:7px;background:rgba(255,255,255,.06);color:#9aa3b2'>off board</span>";return "<div style='display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:14px;background:var(--surface);border:1px solid "+e.bd+"'><div style='font-size:24px'>"+e.ic+"</div><div style='flex:1;min-width:0'><div style='font-weight:700;font-size:15px'>"+esc(e.name)+" <span style='font-size:12px;color:#7b8597;font-weight:500'>"+esc(e.det)+"</span></div><div style='font-size:12px;color:#8b94a6;margin-top:2px'>"+esc(e.sub)+"</div></div>"+badge+"</div>";}).join(""):("<div style='padding:34px 18px;border-radius:14px;background:var(--surface);border:1px dashed rgba(255,255,255,.12);text-align:center;color:#7b8597;font-size:13px;line-height:1.5'>"+(S.liveLoading?"Loading live game feed\u2026":"No home runs yet. Turn on Auto-poll or tap Refresh now \u2014 dingers appear here live during games.")+"</div>");
+  var T=LIVE_TRACKER||{hit:0,total:0,predicted:0,slate:0,pct:0,pending:0};
+  var tracker="<div style='background:var(--surface);border:1px solid var(--line2);border-radius:16px;padding:18px;text-align:center;margin-bottom:11px'><div style='font-size:12px;color:#7b8597;font-weight:600'>BOARD HRs HIT</div><div style='font-family:\"Space Grotesk\";font-size:40px;font-weight:700;margin:6px 0;color:var(--ac)'>"+(T.hit||0)+"<span style='color:#3a4150;font-size:28px'> / "+(T.total||0)+"</span></div><div style='height:8px;border-radius:8px;background:rgba(255,255,255,.08);overflow:hidden'><div style='width:"+(T.pct||0)+"%;height:100%;background:linear-gradient(90deg,var(--ac),#ff5ea8)'></div></div><div style='font-size:12px;color:#8b94a6;margin-top:10px'>"+(T.pending||0)+" still pending across live games</div></div>";
+  var stats=[["Predicted today",(T.predicted||0)+" HRs",""],["Hit so far",String(T.hit||0),POS],["Slate HRs total",String(T.slate||0),""]].map(function(s){return "<div style='display:flex;justify-content:space-between;font-size:12.5px;padding:9px 12px;border-radius:10px;background:var(--surface2)'><span style='color:#9aa3b2'>"+s[0]+"</span><span style='font-family:\"Space Grotesk\";font-weight:700"+(s[2]?";color:"+s[2]:"")+"'>"+s[1]+"</span></div>";}).join("");
+  return "<div class='rise'>"+head+"<div style='display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,.6fr);gap:18px'><div>"+sectHead("\ud83d\udca5","HR events")+"<div style='display:flex;flex-direction:column;gap:10px'>"+ev+"</div></div><div>"+sectHead("\ud83c\udfaf","Hit tracker")+tracker+"<div style='display:flex;flex-direction:column;gap:8px'>"+stats+"</div></div></div></div>";
 }
 
 /* ===================== BET SLIP ===================== */
@@ -937,6 +943,71 @@ function applyBoard(b){
   NAMEIDX={}; Object.keys(PLAYERS).forEach(function(id){NAMEIDX[norm(PLAYERS[id].name)]=id;});
   return true;
 }
+/* ===================== USER KEY + AUTOPOLL + SEARCH ===================== */
+function dlUserKey(){
+  try{
+    var k=localStorage.getItem("dl_user_key");
+    if(!k){ k="u"+Math.random().toString(36).slice(2,8)+Date.now().toString(36).slice(-4); localStorage.setItem("dl_user_key",k); }
+    return k;
+  }catch(e){ return "default"; }
+}
+function dlSetUserKey(k){
+  k=String(k||"").trim().toLowerCase().replace(/[^a-z0-9_-]/g,"");
+  if(!k){ toast("Enter a valid sync key"); return; }
+  try{ localStorage.setItem("dl_user_key",k); }catch(e){}
+  toast("Synced to key \u00b7 pulling tracked bets");
+  dlSync({grade:true});
+}
+function dlAgo(ms){
+  if(!ms) return "never";
+  var s=Math.max(0,Math.round((Date.now()-ms)/1000));
+  if(s<5) return "just now";
+  if(s<60) return s+"s ago";
+  var m=Math.round(s/60); if(m<60) return m+"m ago";
+  return Math.round(m/60)+"h ago";
+}
+var _DL_POLL=null,_DL_TICK=null;
+function refreshLiveData(){
+  if(typeof loadLive==="function") loadLive();
+  fetch(CFG.backend+"/api/board?league=mlb",{mode:"cors"}).then(function(r){return r.ok?r.json():null;}).then(function(b){
+    if(b&&b.source==="live"&&b.playCount>0){ applyBoard(b); S.oddsLive=true; if(b.games&&b.games.length) S.gameCount=b.games.length; }
+  }).catch(function(){});
+  S.lastPoll=Date.now();
+}
+function startAutoPoll(){
+  stopAutoPoll(); S.autopoll=true;
+  refreshLiveData();
+  _DL_POLL=setInterval(refreshLiveData,60000);
+  _DL_TICK=setInterval(function(){ if(S.tab==="live") render(); },5000);
+}
+function stopAutoPoll(){
+  S.autopoll=false;
+  if(_DL_POLL){clearInterval(_DL_POLL);_DL_POLL=null;}
+  if(_DL_TICK){clearInterval(_DL_TICK);_DL_TICK=null;}
+}
+function toggleAutoPoll(){
+  if(S.autopoll){ stopAutoPoll(); toast("Auto-poll off"); }
+  else { startAutoPoll(); toast("Auto-poll on \u00b7 refreshing every 60s"); }
+  render();
+}
+function dlPlayerSearchRows(q){
+  q=String(q||"").trim().toLowerCase();
+  var ids=Object.keys(PLAYERS);
+  if(!q) return "<div style='font-size:12.5px;color:#7b8597;padding:4px 2px'>Type a name to look up any of the "+ids.length+" priced hitters.</div>";
+  var hits=ids.filter(function(id){var nm=PLAYERS[id].name||""; return nm.toLowerCase().indexOf(q)>=0 || norm(nm).indexOf(q)>=0;}).slice(0,30);
+  if(!hits.length) return "<div style='font-size:12.5px;color:#7b8597;padding:4px 2px'>No hitter matches that name.</div>";
+  return hits.map(function(id){var p=PLAYERS[id];var best=p.best||(p.markets&&p.markets[0]&&p.markets[0].odds)||"";return "<div data-act='player' data-player='"+id+"' class='hovrow' style='cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;border-radius:11px;background:var(--surface);border:1px solid var(--line);margin-bottom:7px'><div style='min-width:0'><div style='font-weight:700;font-size:14px'>"+esc(p.name)+"</div><div style='font-size:12px;color:#8b94a6'>"+esc(p.sub||"")+"</div></div><div style='font-family:\"Space Grotesk\";font-weight:700;color:"+AC+";white-space:nowrap'>"+esc(String(best))+"</div></div>";}).join("");
+}
+function dlPlayerSearch(){
+  var box="<input id='dlPlayerSearchInput' placeholder='Search all hitters by name\u2026' value='"+esc(S.search||"")+"' oninput='window._dlPlayerSearch(this.value)' style='width:100%;box-sizing:border-box;padding:12px 14px;border-radius:12px;border:1px solid var(--line2);background:var(--surface);color:#eef1f6;font-size:16px;margin-bottom:11px'/>";
+  return "<div style='margin-bottom:16px'>"+sectHead("\ud83d\udd0d","Player search")+box+"<div id='dlPlayerSearchResults'>"+dlPlayerSearchRows(S.search||"")+"</div></div>";
+}
+window._dlPlayerSearch=function(v){ S.search=v; var el=document.getElementById("dlPlayerSearchResults"); if(el) el.innerHTML=dlPlayerSearchRows(v); };
+function dlSyncCard(){
+  var k=dlUserKey();
+  return "<div style='background:var(--surface);border:1px solid var(--line2);border-radius:16px;padding:18px;margin-bottom:14px'><div style='display:flex;align-items:center;gap:9px;margin-bottom:6px'><span style='font-size:17px'>\ud83d\udd17</span><div style='font-family:\"Space Grotesk\";font-weight:700;font-size:15px'>Cross-device sync</div></div><div style='font-size:12.5px;color:#8b94a6;line-height:1.45;margin-bottom:12px'>Your tracked bets are saved to your Render server under this sync key. Enter the same key on another device to follow them.</div><div style='display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px'><code style='font-family:\"Space Grotesk\";font-size:14px;font-weight:700;color:"+AC+";background:var(--surface2);padding:8px 12px;border-radius:9px'>"+esc(k)+"</code><button data-act='copykey' class='btng' style='padding:8px 12px;border:1px solid rgba(255,255,255,.14);border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;color:#c3cad6;background:transparent'>Copy key</button></div><div style='display:flex;gap:8px;flex-wrap:wrap'><input id='dlKeyInput' placeholder='Paste a sync key from another device' style='flex:1;min-width:180px;box-sizing:border-box;padding:9px 12px;border-radius:10px;border:1px solid var(--line2);background:var(--surface2);color:#eef1f6;font-size:16px'/><button data-act='setkey' class='btng' style='padding:9px 14px;border:1px solid rgba(255,255,255,.14);border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;color:#0a0c11;background:var(--ac)'>Sync</button></div></div>";
+}
+
 function loadBoard(kind){
   if(S.loading) return; S.loading=true; render();
   fetch(CFG.backend+"/api/board?league=mlb",{mode:"cors"}).then(function(r){return r.ok?r.json():null;}).then(function(b){
@@ -990,14 +1061,14 @@ function dlMapSaved(list){
 function dlSync(opts){
   opts=opts||{};
   if(typeof CFG==="undefined"||!CFG||!CFG.backend) return;
-  fetch(CFG.backend+"/api/state",{method:"GET",mode:"cors"}).then(function(r){return r.ok?r.json():null;}).then(function(stt){
+  fetch(CFG.backend+"/api/state?user="+dlUserKey(),{method:"GET",mode:"cors"}).then(function(r){return r.ok?r.json():null;}).then(function(stt){
     if(stt&&stt.savedParlays){ SAVED=dlMapSaved(stt.savedParlays); render(); }
     if(opts.grade){ fetch(CFG.backend+"/api/grade",{method:"POST",mode:"cors",headers:{"Content-Type":"application/json"},body:"{}"}).then(function(r){return r.ok?r.json():null;}).then(function(g){ if(g&&g.state&&g.state.savedParlays){ SAVED=dlMapSaved(g.state.savedParlays); render(); } }).catch(function(){}); }
   }).catch(function(){});
 }
 function dlPersist(parlay){
   if(typeof CFG==="undefined"||!CFG||!CFG.backend) return;
-  fetch(CFG.backend+"/api/state",{method:"POST",mode:"cors",headers:{"Content-Type":"application/json"},body:JSON.stringify({savedParlays:[parlay]})}).then(function(r){return r.ok?r.json():null;}).then(function(res){ if(res&&res.state&&res.state.savedParlays){ SAVED=dlMapSaved(res.state.savedParlays); render(); } }).catch(function(){});
+  fetch(CFG.backend+"/api/state?user="+dlUserKey(),{method:"POST",mode:"cors",headers:{"Content-Type":"application/json"},body:JSON.stringify({savedParlays:[parlay]})}).then(function(r){return r.ok?r.json():null;}).then(function(res){ if(res&&res.state&&res.state.savedParlays){ SAVED=dlMapSaved(res.state.savedParlays); render(); } }).catch(function(){});
 }
 function loadLive(){
   if(S.liveLoading) return;
@@ -1015,7 +1086,7 @@ function loadLive(){
     var pct=totalBoard?Math.round(hit/totalBoard*100):0;
     LIVE_TRACKER={hit:hit,total:totalBoard,predicted:predicted,slate:slate,pct:pct,pending:Math.max(0,totalBoard-hit)};
     var gl=d.gamesLive||0;
-    LIVE_META="Polling · "+gl+" game"+(gl===1?"":"s")+" live · just now";
+    LIVE_LAST_MS=Date.now(); S.lastPoll=LIVE_LAST_MS; LIVE_META="Polling \u00b7 "+gl+" game"+(gl===1?"":"s")+" live \u00b7 updated "+dlAgo(LIVE_LAST_MS);
     render();
   }).catch(function(){ S.liveLoading=false; LIVE_META="Could not reach live feed"; render(); });
 }
@@ -1051,8 +1122,12 @@ function exportFeatureStore(){
 document.addEventListener("click",function(e){
   var el=e.target.closest&&e.target.closest("[data-act]"); if(!el) return;
   var a=el.dataset.act;
-  if(a==="tab"){ S.tab=el.dataset.tab; S.drawer=null; if(S.tab==="track") dlSync({grade:true}); render(); }
+  if(a==="tab"){ S.tab=el.dataset.tab; S.drawer=null; if(S.tab==="track") dlSync({grade:true}); if(S.tab==="live") loadLive(); render(); }
   else if(a==="player"){ var p=PLAYERS[el.dataset.player]; if(p){ S.drawer=p; render(); } }
+  else if(a==="togglepoll"){ toggleAutoPoll(); }
+  else if(a==="refreshlive"){ loadLive(); toast("Refreshing live feed"); }
+  else if(a==="copykey"){ try{navigator.clipboard.writeText(dlUserKey());}catch(e){} toast("Sync key copied"); }
+  else if(a==="setkey"){ var _ki=document.getElementById("dlKeyInput"); if(_ki&&_ki.value.trim()){ dlSetUserKey(_ki.value); } else { toast("Enter a sync key first"); } }
   else if(a==="closeDrawer"){ if(e.target!==el && a==="closeDrawer" && el.tagName!=="BUTTON" && e.target.closest("[data-act=closeDrawer]")!==el){} S.drawer=null; render(); }
   else if(a==="addLeg"){ var dp=S.drawer||{}; S.slip.push({name:el.dataset.name,market:el.dataset.market,mk:dlMkCode(el.dataset.market),id:(dp&&dp.id)||null,gamePk:(dp&&dp.gamePk!=null)?dp.gamePk:null,date:(dp&&dp.mlbDate)||null,book:"Best",american:el.dataset.odds,prob:parseFloat(el.dataset.prob)}); S.drawer=null; toast("Added "+el.dataset.name+" to slip"); render(); }
   else if(a==="rmLeg"){ S.slip.splice(+el.dataset.i,1); render(); }
@@ -1088,6 +1163,7 @@ document.addEventListener("input",function(e){
 
 /* ===================== BOOT ===================== */
 render();
+try{dlSync({});}catch(e){}
 console.log("DingerLab "+APP_VERSION+" — "+APP_UPDATED);
 </script>
 </body>

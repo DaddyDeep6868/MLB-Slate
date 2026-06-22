@@ -106,15 +106,48 @@ def index():
     return html
 
 
+def _user_state_path(req):
+    key = (req.args.get("user") or "").strip().lower()
+    if not key or len(key) > 64 or not all(c.isalnum() or c in "-_" for c in key):
+        return STATE_PATH
+    return DATA_DIR / ("state_" + key + ".json")
+
+
+def _load_state_at(path):
+    with LOCK:
+        if not path.exists():
+            return dict(DEFAULT_STATE)
+        try:
+            data = json.loads(path.read_text("utf-8"))
+        except Exception:
+            return dict(DEFAULT_STATE)
+    out = dict(DEFAULT_STATE)
+    if isinstance(data, dict):
+        out.update(data)
+    out.setdefault("savedParlays", [])
+    out.setdefault("boardSnapshots", {})
+    out.setdefault("modelExports", [])
+    return out
+
+
+def _save_state_at(path, state):
+    state["updatedAt"] = datetime.utcnow().isoformat() + "Z"
+    with LOCK:
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state, indent=2, sort_keys=True), "utf-8")
+        tmp.replace(path)
+
+
 @app.get("/api/state")
 def api_state():
-    return jsonify(load_state())
+    return jsonify(_load_state_at(_user_state_path(request)))
 
 
 @app.post("/api/state")
 def api_state_post():
     incoming = request.get_json(silent=True) or {}
-    state = load_state()
+    _sp = _user_state_path(request)
+    state = _load_state_at(_sp)
     if "savedParlays" in incoming:
         if incoming.get("replaceSavedParlays"):
             state["savedParlays"] = incoming.get("savedParlays") if isinstance(incoming.get("savedParlays"), list) else []
@@ -126,7 +159,7 @@ def api_state_post():
         state["boardSnapshots"] = bs
     if "modelExports" in incoming:
         state["modelExports"] = merge_exports(state.get("modelExports"), incoming.get("modelExports"))
-    save_state(state)
+    _save_state_at(_sp, state)
     return jsonify({"ok": True, "state": state})
 
 
