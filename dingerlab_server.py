@@ -28,6 +28,7 @@ DEFAULT_STATE = {
     "savedParlays": [],
     "boardSnapshots": {},
     "modelExports": [],
+    "oddsSnapshots": {},
     "updatedAt": None,
 }
 
@@ -49,6 +50,7 @@ def load_state():
         out.setdefault("savedParlays", [])
         out.setdefault("boardSnapshots", {})
         out.setdefault("modelExports", [])
+        out.setdefault("oddsSnapshots", {})
         return out
 
 
@@ -106,15 +108,48 @@ def index():
     return html
 
 
+def _user_state_path(req):
+    key = (req.args.get("user") or "").strip().lower()
+    if not key or len(key) > 64 or not all(c.isalnum() or c in "-_" for c in key):
+        return STATE_PATH
+    return DATA_DIR / ("state_" + key + ".json")
+
+
+def _load_state_at(path):
+    with LOCK:
+        if not path.exists():
+            return dict(DEFAULT_STATE)
+        try:
+            data = json.loads(path.read_text("utf-8"))
+        except Exception:
+            return dict(DEFAULT_STATE)
+    out = dict(DEFAULT_STATE)
+    if isinstance(data, dict):
+        out.update(data)
+    out.setdefault("savedParlays", [])
+    out.setdefault("boardSnapshots", {})
+    out.setdefault("modelExports", [])
+    return out
+
+
+def _save_state_at(path, state):
+    state["updatedAt"] = datetime.utcnow().isoformat() + "Z"
+    with LOCK:
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state, indent=2, sort_keys=True), "utf-8")
+        tmp.replace(path)
+
+
 @app.get("/api/state")
 def api_state():
-    return jsonify(load_state())
+    return jsonify(_load_state_at(_user_state_path(request)))
 
 
 @app.post("/api/state")
 def api_state_post():
     incoming = request.get_json(silent=True) or {}
-    state = load_state()
+    _sp = _user_state_path(request)
+    state = _load_state_at(_sp)
     if "savedParlays" in incoming:
         if incoming.get("replaceSavedParlays"):
             state["savedParlays"] = incoming.get("savedParlays") if isinstance(incoming.get("savedParlays"), list) else []
@@ -126,7 +161,7 @@ def api_state_post():
         state["boardSnapshots"] = bs
     if "modelExports" in incoming:
         state["modelExports"] = merge_exports(state.get("modelExports"), incoming.get("modelExports"))
-    save_state(state)
+    _save_state_at(_sp, state)
     return jsonify({"ok": True, "state": state})
 
 
@@ -327,6 +362,78 @@ def _dl_score(cls, p):
     return max(40, min(92, int(round(28 + p * 78))))
 
 
+_DL_META_CACHE = {}
+
+
+def _dl_clv(bet_am, close_am):
+    bi = _dl_imp(bet_am)
+    ci = _dl_imp(close_am)
+    if bi is None or ci is None:
+        return None, None
+    clv = round((ci - bi) * 100.0, 2)
+    return clv, (ci > bi)
+
+
+def _dl_platoon_mult(bat, pit):
+    if not bat or not pit:
+        return 1.0, ""
+    if bat == "S":
+        return 1.06, "Switch vs " + pit + "HP +6%"
+    if bat != pit:
+        return 1.12, bat + "HB vs " + pit + "HP +12%"
+    return 0.91, bat + "HB vs " + pit + "HP -9%"
+
+
+def _dl_wx_mult(wind_txt, temp_txt, roof_closed):
+    if roof_closed:
+        return 1.0, "Roof closed (neutral)"
+    m = 1.0
+    notes = []
+    w = (wind_txt or "").lower()
+    if "out" in w:
+        m *= 1.08
+        notes.append("wind out +8%")
+    elif "in" in w:
+        m *= 0.92
+        notes.append("wind in -8%")
+    try:
+        digits = re.sub(r"[^0-9-]", "", (temp_txt or ""))
+        t = int(digits) if digits not in ("", "-") else 0
+        if t:
+            tm = max(0.93, min(1.08, 1.0 + (t - 70) * 0.005))
+            m *= tm
+            if t >= 80:
+                notes.append("warm " + str(t) + "F")
+            elif t <= 55:
+                notes.append("cold " + str(t) + "F")
+    except Exception:
+        pass
+    return m, (", ".join(notes) if notes else "neutral wx")
+
+
+def _dl_game_meta(game_pk):
+    if game_pk in _DL_META_CACHE:
+        return _DL_META_CACHE[game_pk]
+    out = {"bats": {}, "hands": {}}
+    try:
+        j = _dl_jget("https://statsapi.mlb.com/api/v1.1/game/%s/feed/live" % game_pk,
+                     params={"fields": "gameData,players,fullName,batSide,pitchHand,code,id"}, timeout=8)
+        pls = ((j.get("gameData") or {}).get("players")) or {}
+        for _k, v in pls.items():
+            nm = v.get("fullName") or ""
+            bs = ((v.get("batSide") or {}).get("code") or "")
+            ph = ((v.get("pitchHand") or {}).get("code") or "")
+            pid = v.get("id")
+            if nm and bs:
+                out["bats"][_dl_norm_name(nm)] = bs
+            if pid is not None and ph:
+                out["hands"][str(pid)] = ph
+    except Exception:
+        pass
+    _DL_META_CACHE[game_pk] = out
+    return out
+
+
 def _dl_build(league="mlb"):
     legs, books_ok, errors = _dl_collect(league)
     groups = {}
@@ -404,6 +511,8 @@ def _dl_board(league="mlb"):
         hr = next((x for x in lst if x["cls"] == "hr"), None)
         prim = hr or max(lst, key=lambda x: x["ev"])
         pid = _dl_mkid(prim["player"])
+        for _x in lst:
+            _x["pid"] = pid
         rank = {"hr": 3, "tb": 2, "hits2": 1, "hits": 1, "rbi": 0}
         mkts = []
         for x in sorted(lst, key=lambda x: (-rank.get(x["cls"], 0), -x["ev"])):
@@ -553,6 +662,7 @@ def _dl_board(league="mlb"):
                 _trophy = any((x.get("score") or 0) >= 85 for x in gp)
                 _evplus = any(x.get("evc") == "POS" for x in gp)
                 _flags = {"trophy": _trophy, "parkEdge": _park_hot, "pWeak": _pweak, "evPlus": _evplus, "steam": False}
+                _meta = _dl_game_meta(pk) if _budget else {"bats": {}, "hands": {}}
                 for _rr in prim_list:
                     _tr = (_rr.get("team") or "")[:3].upper()
                     _pidr = _rr.get("pid")
@@ -566,6 +676,46 @@ def _dl_board(league="mlb"):
                         _P["temp"] = _wx["temp"]
                         _P["roof"] = _wx["roof"]
                         _P["inLineup"] = _inlu
+                        _P["gameState"] = state
+                        try:
+                            if _rr.get("cls") == "hr":
+                                _bat = _meta["bats"].get(_dl_norm_name(_rr.get("player") or ""))
+                                _oppid = _ap_id if _tr == ha else _hp_id
+                                _opph = _meta["hands"].get(str(_oppid)) if _oppid else None
+                                _plm, _pltxt = _dl_platoon_mult(_bat, _opph)
+                                _wxm, _wxtxt = _dl_wx_mult(_wx.get("wind"), _wx.get("temp"), _roofb)
+                                _pkm = 1.0 + (_pct / 100.0)
+                                _ptm = 1.0
+                                _oh9 = _dl_pitcher_hr9(_oppid) if _budget else None
+                                if _oh9 is not None:
+                                    _ptm = 1.06 if _oh9 >= 1.4 else (0.95 if _oh9 <= 0.8 else 1.0)
+                                _mult = max(0.6, min(1.6, _plm * _wxm * _pkm * _ptm))
+                                _fairv = _rr.get("fair") or 0.0
+                                _mp = max(0.005, min(0.97, _fairv * _mult))
+                                _bd = _dl_dec(_rr.get("bestAm")) or 0.0
+                                _mev = (_mp * _bd - 1.0) if _bd else (_rr.get("ev") or 0.0)
+                                _P["modelProb"] = round(_mp, 4)
+                                _P["modelMult"] = round(_mult, 3)
+                                _P["model"] = "%.1f%%" % (_mp * 100)
+                                _P["ev"] = ("+" if _mev >= 0 else "") + ("%.1f%%" % (_mev * 100))
+                                _P["modelEv"] = round(_mev * 100, 1)
+                                _scm = _dl_score("hr", _mp)
+                                _P["score"] = _scm
+                                _P["stars"] = max(1, min(5, int(round(_scm / 20.0))))
+                                _P["fade"] = "Low" if _scm >= 80 else ("Med" if _scm >= 68 else "High")
+                                _P["platoon"] = _pltxt
+                                _P["wxModel"] = _wxtxt
+                                _rs2 = [x for x in (_P.get("reasons") or []) if not str(x).startswith("Model ")]
+                                _P["reasons"] = ["Model " + _P["model"] + " vs market fair " + ("%.1f%%" % (_fairv * 100)) + ((" \u00b7 " + _pltxt) if _pltxt else "")] + _rs2
+                                _tg = list(_P.get("tags") or [])
+                                if _mult >= 1.08:
+                                    _tg.append({"t": "Matchup+", "c": "orange"})
+                                elif _mult <= 0.93:
+                                    _tg.append({"t": "Tough spot", "c": "purple"})
+                                _P["tags"] = _tg
+                                _P["profile"] = (_P.get("profile") or []) + [["Matchup mult", max(0, min(100, int(round(_mult * 60)))), ("%+.0f%%" % ((_mult - 1) * 100)), "PURPLE"]]
+                        except Exception:
+                            pass
                         _wx_note = (venue + " park " + _park_pct + ((", wind " + _wx["wind"]) if _wx["wind"] else "") + ((", " + _wx["temp"]) if _wx["temp"] else ""))
                         if _inlu:
                             _rs = _P.get("reasons") or []
@@ -590,6 +740,23 @@ def _dl_board(league="mlb"):
                     feed.append({"ic": "📋", "t": "Scheduled — " + matchup, "d": ((apr or "TBD") + " vs " + (hp or "TBD")) + " · " + (tm or "TBD"), "your": your, "time": tm})
     except Exception as e:
         errors["schedule"] = str(e)
+    try:
+        star_cards = sorted(players.keys(), key=lambda _pid: -(players[_pid].get("score") or 0))[:4]
+        _n2p = {}
+        for _pp2 in prim_list:
+            _n2p[_dl_norm_name(_pp2["player"])] = _pp2.get("pid")
+        for _row in data_rows:
+            _pidx = _n2p.get(_dl_norm_name(_row[0]))
+            if _pidx and _pidx in players:
+                _PP = players[_pidx]
+                if _PP.get("modelProb") is not None:
+                    _row[2] = "%.1f" % (_PP["modelProb"] * 100)
+                    if _PP.get("modelEv") is not None:
+                        _row[6] = ("+" if _PP["modelEv"] >= 0 else "") + ("%.1f" % _PP["modelEv"])
+                    _row[7] = str(_PP.get("score"))
+                    _row[9] = _PP.get("fade") or _row[9]
+    except Exception as _e:
+        errors["model"] = str(_e)
     steam = []
     try:
         for _p in plays:
@@ -625,19 +792,56 @@ def _dl_board(league="mlb"):
             _g["flags"] = _fl
     except Exception:
         pass
+    _snaps = []
+    for _p in plays:
+        _pid = _p.get("pid")
+        if not _pid or _pid not in players:
+            continue
+        _PX = players[_pid]
+        _gpk = _PX.get("gamePk")
+        if not _gpk:
+            continue
+        _snaps.append({"gamePk": str(_gpk), "norm": _p.get("norm"), "name": _p.get("player"),
+                       "mk": _p.get("cls"), "am": _p.get("bestAm"), "label": _p.get("label"),
+                       "state": _PX.get("gameState") or ""})
     return {"source": "live", "generatedAt": datetime.utcnow().isoformat() + "Z", "league": league,
             "booksLive": books_ok, "errors": errors, "playCount": len(plays), "players": players,
             "starCards": star_cards, "kpis": kpis, "combos": combos, "dataRows": data_rows, "games": games,
-            "steam": steam, "feed": feed}
+            "steam": steam, "feed": feed, "snapshots": _snaps}
+
+
+def _dl_capture_closing(b):
+    snaps = b.get("snapshots") or []
+    if not snaps:
+        return
+    state = load_state()
+    od = state.setdefault("oddsSnapshots", {})
+    changed = False
+    for s in snaps:
+        st = s.get("state") or ""
+        if st in ("Live", "Final"):
+            continue
+        if s.get("am") is None:
+            continue
+        key = str(s.get("gamePk")) + "|" + (s.get("norm") or "") + "|" + (s.get("mk") or "hr")
+        od[key] = {"am": s.get("am"), "ts": now_ms(), "name": s.get("name"), "label": s.get("label")}
+        changed = True
+    if changed:
+        save_state(state)
 
 
 @app.get("/api/board")
 def api_board():
     league = (request.args.get("league") or "mlb").strip().lower()
     try:
-        return jsonify(_dl_board(league))
+        b = _dl_board(league)
     except Exception as e:
         return jsonify({"source": "error", "error": str(e)}), 502
+    try:
+        _dl_capture_closing(b)
+    except Exception as e:
+        b.setdefault("errors", {})["closing"] = str(e)
+    return jsonify(b)
 
 
 @app.get("/api/oddsblaze/sample")
@@ -900,8 +1104,9 @@ def leg_hit(leg, stats, hr_ids, named=None):
     return None, None
 
 
-def perform_grade():
-    state = load_state()
+def perform_grade(state_path=None):
+    state = _load_state_at(state_path) if state_path else load_state()
+    _closing = (load_state().get("oddsSnapshots") or {})
     all_slips = state.get("savedParlays") or []
     pending = [x for x in all_slips if (x.get("result") or "pending") == "pending" and isinstance(x.get("legData"), list)]
     dates, pks = set(), set()
@@ -933,12 +1138,23 @@ def perform_grade():
             hr_sets[pk] = set()
     graded_slips = 0
     graded_legs = 0
+    clv_updates = 0
     waiting = 0
     for pp in pending:
         ready = True
         win = True
         for l in pp.get("legData") or []:
             pk = str(l.get("gamePk")) if l.get("gamePk") is not None else ""
+            if l.get("clvPct") is None and l.get("american") is not None:
+                _ck = pk + "|" + _dl_norm_name(l.get("player") or l.get("name") or "") + "|" + (l.get("mk") or "hr")
+                _snap = _closing.get(_ck)
+                if _snap and _snap.get("am") is not None:
+                    _clv, _beat = _dl_clv(l.get("american"), _snap.get("am"))
+                    if _clv is not None:
+                        l["closeAm"] = _snap.get("am")
+                        l["clvPct"] = _clv
+                        l["beatClose"] = _beat
+                        clv_updates += 1
             if l.get("hit") is None:
                 if status.get(pk) != "Final":
                     ready = False
@@ -953,6 +1169,9 @@ def perform_grade():
                 graded_legs += 1
             if l.get("hit") is False:
                 win = False
+        _lc = [x.get("clvPct") for x in (pp.get("legData") or []) if x.get("clvPct") is not None]
+        if _lc:
+            pp["clv"] = round(sum(_lc) / len(_lc), 2)
         if not ready:
             waiting += 1
             continue
@@ -960,10 +1179,11 @@ def perform_grade():
         pp["gradedAt"] = now_ms()
         pp["serverUpdatedAt"] = now_ms()
         graded_slips += 1
-    if graded_slips or graded_legs:
-        save_state(state)
-    else:
-        state["updatedAt"] = state.get("updatedAt")
+    if graded_slips or graded_legs or clv_updates:
+        if state_path:
+            _save_state_at(state_path, state)
+        else:
+            save_state(state)
     return {
         "ok": True,
         "gradedSlips": graded_slips,
@@ -2177,7 +2397,7 @@ def api_tw_consensus():
 
 @app.post("/api/grade")
 def api_grade():
-    return jsonify(perform_grade())
+    return jsonify(perform_grade(_user_state_path(request)))
 
 
 def _norm_name(s):
