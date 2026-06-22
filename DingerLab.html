@@ -146,8 +146,8 @@
 <div id="toast"></div>
 <script>
 /* ===================== DingerLab — Stadium Night ===================== */
-var APP_VERSION = "v8.2";
-var APP_UPDATED = "v8.2 \u2014 removed ULX entirely: deleted the ULX tab and Accountability Sheet, the ULX HR parlay builder card in Builder, and all ULX controls and handlers";
+var APP_VERSION = "v7.9";
+var APP_UPDATED = "v7.9 \u2014 Mobile optimization: responsive header, horizontal scroll tab bar, single-column grids, full-width slip + drawer, touch-friendly tap targets, iOS zoom-safe inputs";
 
 var CFG = { backend: "https://mlb-slate.onrender.com" };
 var AC="#ff8a4c", POS="#35d0c0", GOLD="#ffc24d", PINK="#ff5ea8", PURPLE="#a78bfa", WARN="#ff6b6b";
@@ -203,6 +203,7 @@ var NAV = [
   {id:"research",label:"Research",icon:"\uD83D\uDD0E"},
   {id:"track",label:"Tracking",icon:"\u25C8"},
   {id:"tools",label:"Tools",icon:"\u2699"},
+  {id:"ulx",label:"ULX",icon:"\u2611"},
   {id:"live",label:"Live",icon:"\u25C9"}
 ];
 
@@ -275,12 +276,16 @@ var STEAM = [
 var SLIDERS = [["Season regression",62,"0.62"],["Recent-form weight",40,"0.40"],["Park / weather factor",75,"0.75"]];
 var GUARDS2 = [["Max slips per player","2"],["Max daily stake","$120"],["Kelly fraction","\u00BC"],["Min edge to bet","+3.0%",POS]];
 var TOOLCARDS = [["\u270D\uFE0F","Manual entry","Add a game or prop by hand when a book hasn't posted."],["\u2B07\uFE0F","Export","Feature store CSV / JSON and frozen board snapshots."],["\uD83E\uDDEA","Recalibrate","Re-fit probabilities from your graded results."],["\uD83D\uDCD0","Methodology","Poisson rate model + Gaussian-copula correlation."]];
-var LIVE_EV = [];
-var LIVE_LAST_MS = 0;
+var LIVE_EV = [
+  {ic:"\uD83D\uDCA5",name:"Aaron Judge",det:"· solo HR · T5",sub:"114.2 mph · 441 ft · NYY 3\u20131 BOS",on:true,bd:"rgba(255,138,76,.28)"},
+  {ic:"\uD83D\uDCA5",name:"Yordan Alvarez",det:"· 2-run HR · B3",sub:"109.8 mph · 408 ft · HOU 4\u20130 SEA",on:true,bd:"rgba(255,138,76,.28)"},
+  {ic:"\u26BE",name:"Cal Raleigh",det:"· solo HR · T7",sub:"106.1 mph · 397 ft · SEA 1\u20134 HOU",on:false,bd:"rgba(255,255,255,.07)"},
+  {ic:"\u26BE",name:"Marcell Ozuna",det:"· solo HR · B6",sub:"110.5 mph · 419 ft · ATL 2\u20132 NYM",on:false,bd:"rgba(255,255,255,.07)"}
+];
 
 /* ===================== STATE ===================== */
 var S = {
-  tab:"dashboard", drawer:null, autopoll:false, lastPoll:0, search:"",
+  tab:"dashboard", drawer:null,
   slip:[ {name:"Aaron Judge",market:"To hit a HR",book:"DraftKings",american:"+340",prob:0.214},
          {name:"Kyle Schwarber",market:"1+ Hit",book:"FanDuel",american:"\u2212135",prob:0.60} ],
   stake:25,
@@ -483,6 +488,165 @@ function genBuilds(){
   }
   return cards;
 }
+/* ===== ULX HR Parlay Builder (ported from v4.25) ===== */
+function ulxRoleColor(role){return role==="Anchor"?"#35d0c0":role==="Value Bat"?"#ffc24d":"#ff5ea8";}
+function ulxRoleIcon(role){return role==="Anchor"?"\u2693":role==="Value Bat"?"\ud83d\udcb0":"\u2622\ufe0f";}
+function ulxRows(){
+  var out=[]; if(!PLAYERS) return out;
+  Object.keys(PLAYERS).forEach(function(id){
+    var p=PLAYERS[id]; if(!p) return;
+    var hrMk=null; (p.markets||[]).forEach(function(m){ if(!hrMk && /^(hr|home\s*run)$/i.test(m.label||"")) hrMk=m; });
+    if(!hrMk) return;
+    var am=parseAm(hrMk.odds); if(am==null) return;
+    var prob=(hrMk.prob!=null)?(+hrMk.prob):null;
+    var spot=0,power=0,parkWx=0,riskNum=0,formNum=60;
+    (p.profile||[]).forEach(function(pr){
+      var nm=String(pr[0]||"").toLowerCase();
+      if(/lineup/.test(nm)) spot=Math.max(1,Math.min(9,Math.round((pr[1]||0)/11)));
+      else if(/^power/.test(nm)) power=pr[1]||0;
+      else if(/park/.test(nm)) parkWx=(pr[1]||0)-50;
+      else if(/^risk/.test(nm)) riskNum=pr[1]||0;
+      else if(/recent/.test(nm)) formNum=pr[1]||0;
+    });
+    if(!spot) spot=Math.max(1,Math.min(9,Math.round((p.score||60)/12)));
+    var launch=String(p.launch||"");
+    var lift=(/ideal|high/i.test(launch))?"Lift":"Flat";
+    var hashSrc=String(p.id||p.name||"");
+    var pull=((hashSrc.charCodeAt(0)+hashSrc.charCodeAt(hashSrc.length-1)+spot)%2===0)?"Pull":"Spray";
+    out.push({id:p.id,name:p.name,line:p.line||"",gamePk:p.gamePk||p.id,lineupSpot:spot,
+      hrAmerican:am,hrModelProb:prob,hrEdgeLabel:p.ev||"",dnaClass:p.dnaClass||"",
+      score:+p.score||0,power:power,form:formNum,parkWx:parkWx,riskNum:riskNum,
+      arche:pull+"/"+lift,fadeLow:/low/i.test(String(p.fade||""))});
+  });
+  return out;
+}
+function ulxLeg(r,role){return {role:role,id:r.id,gamePk:r.gamePk,name:r.name,line:r.line,odds:r.hrAmerican,modelProb:r.hrModelProb,edgeLabel:r.hrEdgeLabel,spot:r.lineupSpot,arche:r.arche,env:r.parkWx,power:r.power,risk:r.riskNum,dnaClass:r.dnaClass,form:r.form};}
+function dlBuildUlxParlay(opts){
+  opts=opts||{}; var rot=opts.rot||{Anchor:0,"Value Bat":0,Longshot:0}; var pin=opts.pin||{};
+  var rows=ulxRows();
+  if(rows.length<3) return {error:"Need at least 3 players with HR markets \u2014 load today\u2019s slate first (tap \u201cLoad slate\u201d)."};
+  var used=[]; var altCounts={}; var altStretch={}; var pickTier={};
+  function findByName(nm){ for(var i=0;i<rows.length;i++) if(String(rows[i].name)===String(nm)) return rows[i]; return null; }
+  var pinned={};
+  ["Anchor","Value Bat","Longshot"].forEach(function(role){ if(pin[role]){ var p=findByName(pin[role]); if(p&&used.indexOf(p)<0){pinned[role]=p; used.push(p);} } });
+  function divPen(r){ var pen=0; used.forEach(function(u){ if(u.gamePk===r.gamePk) pen+=6; if(u.arche===r.arche) pen+=5; }); return pen; }
+  function pick(role,bands,scoreFn){
+    var ideal=bands[0],wide=bands[bands.length-1];
+    function tier(o){ if(o>=ideal[0]&&o<=ideal[1]) return 0; if(o>=wide[0]&&o<=wide[1]) return 1; return 2; }
+    if(pinned[role]){ pickTier[role]=tier(pinned[role].hrAmerican); return pinned[role]; }
+    function dist(o){ if(o<wide[0]) return wide[0]-o; if(o>wide[1]) return o-wide[1]; return 0; }
+    var pool=rows.filter(function(r){return used.indexOf(r)<0;});
+    if(!pool.length) return null;
+    pool.sort(function(a,b){
+      var oa=a.hrAmerican,ob=b.hrAmerican; var ta=tier(oa),tb=tier(ob);
+      if(ta!==tb) return ta-tb;
+      if(ta===2){ var da=dist(oa),db=dist(ob); if(da!==db) return da-db; }
+      return (scoreFn(b)-divPen(b))-(scoreFn(a)-divPen(a));
+    });
+    var clean=0; for(var i=0;i<pool.length;i++) if(tier(pool[i].hrAmerican)<=1) clean++;
+    altCounts[role]=clean; altStretch[role]=pool.length-clean;
+    var idx=((rot[role]||0)%pool.length+pool.length)%pool.length;
+    var chosen=pool[idx]; used.push(chosen); pickTier[role]=tier(chosen.hrAmerican);
+    return chosen;
+  }
+  var anchor=pick("Anchor",[[150,650],[80,1200]],function(r){return (r.score||0)*0.6+(r.hrModelProb||0)*120+((r.lineupSpot>=3&&r.lineupSpot<=5)?6:0)+(r.fadeLow?5:0);});
+  var value=pick("Value Bat",[[450,1000],[300,1600]],function(r){return (r.score||0)*0.4+(r.hrModelProb||0)*100+((r.lineupSpot>=6)?5:0)+(r.parkWx>=0?3:0);});
+  var longshot=pick("Longshot",[[850,2200],[600,4000]],function(r){return (r.power||0)*0.7+(r.hrModelProb||0)*120+((r.lineupSpot>=7)?6:0)+(r.parkWx>=0?5:0);});
+  var rest=rows.filter(function(r){return used.indexOf(r)<0;}).sort(function(a,b){return (b.score||0)-(a.score||0);});
+  if(!anchor){anchor=rest.shift();}
+  if(!value){value=rest.shift();}
+  if(!longshot){longshot=rest.shift();}
+  if(!anchor||!value||!longshot) return {error:"Could not assemble three distinct legs from the current slate."};
+  var legs=[ulxLeg(anchor,"Anchor"),ulxLeg(value,"Value Bat"),ulxLeg(longshot,"Longshot")];
+  ["Anchor","Value Bat","Longshot"].forEach(function(role,i){legs[i].alts=altCounts[role]||0; legs[i].altStretch=altStretch[role]||0; legs[i].stretch=(pickTier[role]===2); legs[i].soft=(pickTier[role]===1);});
+  var spots=legs.map(function(l){return l.spot||0;});
+  var arches=legs.map(function(l){return l.arche;});
+  var distinctSpots=spots.filter(function(v,i){return v&&spots.indexOf(v)===i;}).length;
+  var distinctArche=arches.filter(function(v,i){return arches.indexOf(v)===i;}).length;
+  var envOk=legs.filter(function(l){return l.env>=0;}).length;
+  var checks=[
+    ["Anchor identified",legs[0].odds<=700],
+    ["Value bat found",legs[1].odds>=450&&legs[1].odds<=1100],
+    ["Longshot selected",legs[2].odds>=850],
+    ["Different archetypes",distinctArche>=2],
+    ["Different lineup spots",distinctSpots>=2],
+    ["Good matchups",legs.every(function(l){return !/overpriced|fade/i.test(l.edgeLabel||"");})],
+    ["Favorable HR environment",envOk>=2],
+    ["Reasonable odds (value)",legs.every(function(l){return l.modelProb==null||amToDec(l.odds)*l.modelProb>=0.95;})],
+    ["Power profile (3-leg avg)",legs.reduce(function(s,l){return s+(l.power||0);},0)/3>=70],
+    ["Makes sense on paper",legs.every(function(l){return (l.risk||0)<60;})]
+  ];
+  var passed=checks.filter(function(c){return c[1];}).length;
+  var warnings=[];
+  if(legs.every(function(l){return l.odds>=850;})) warnings.push("Three longshots \u2014 too much variance. Swap one for a shorter-priced anchor.");
+  if(distinctArche<=1) warnings.push("Same archetype \u2014 all three share a "+arches[0]+" profile. Diversify swing types.");
+  if(legs.every(function(l){return l.env<0;})) warnings.push("Same bad environment \u2014 every leg is in a HR-suppressing park/weather spot.");
+  if(legs[0].gamePk===legs[1].gamePk&&legs[1].gamePk===legs[2].gamePk) warnings.push("All three legs are in the same game \u2014 correlated and lower-value.");
+  var dec=1; legs.forEach(function(l){ var d=amToDec(l.odds); if(d&&d>1) dec*=d; });
+  return {legs:legs,checks:checks,passed:passed,green:passed>=7,warnings:warnings,parlayDecimal:dec,parlayAmerican:decToAm(dec),rot:rot};
+}
+function fmtPctU(p){ if(p==null||isNaN(p)) return "\u2014"; return (p*100).toFixed(1)+"%"; }
+function ulxCardLeg(l){
+  var col=ulxRoleColor(l.role);
+  return "<div style=\"flex:1;min-width:220px;border:1px solid "+col+"55;border-radius:12px;padding:12px;background:"+col+"11\">"+
+    "<div style=\"font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:"+col+";font-weight:700\">"+ulxRoleIcon(l.role)+" "+esc(l.role)+"</div>"+
+    "<div style=\"font-size:17px;font-weight:700;margin:3px 0\">"+esc(l.name)+"</div>"+
+    "<div style=\"font-size:12px;color:#9aa3b2\">"+esc(l.line||"")+(l.spot?(" \u00b7 bats #"+l.spot):"")+"</div>"+
+    "<div style=\"margin:6px 0;font-size:15px;font-weight:600\">"+fmtAm(l.odds)+(l.stretch?" \u00b7 \u26a0\ufe0f outside ideal band":(l.soft?" \u00b7 ~ relaxed band":""))+"</div>"+
+    "<div style=\"font-size:12px;color:#9aa3b2\">Model "+fmtPctU(l.modelProb)+(l.edgeLabel?(" \u00b7 EV "+esc(l.edgeLabel)):"")+"</div>"+
+    "<div style=\"font-size:12px;color:#9aa3b2\">"+esc(l.arche)+(l.dnaClass?(" \u00b7 "+esc(l.dnaClass)):"")+"</div>"+
+    "<div style=\"font-size:12px;color:#9aa3b2\">Park/Wx "+(l.env>=0?"+":"")+l.env+"%"+"</div>"+
+  "</div>";
+}
+function viewUlxCard(){
+  var res=window.__ULX;
+  var head="<div style=\"display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px\">"+
+    "<div><div style=\"font-family:'Space Grotesk';font-weight:700;font-size:16px\">\ud83c\udfdf\ufe0f ULX HR Parlay Builder</div>"+
+    "<div style=\"font-size:12.5px;color:#8b94a6;margin-top:3px;max-width:740px\">Builds with <b>roles, not names</b>: one \u2693 Anchor (highest confidence), one \ud83d\udcb0 Value Bat (underpriced), one \u2622\ufe0f Longshot (low-owned). Enforces diversification and a 7-of-10 ULX green-light gate.</div></div>"+
+    "<button data-act=\"ulxbuild\" style=\"padding:10px 16px;border-radius:11px;border:none;cursor:pointer;font-weight:800;font-size:13.5px;color:#0a0c11;background:var(--ac)\">\u26a1 Build ULX HR parlay</button></div>";
+  var body="";
+  if(res&&res.error){ body="<div style=\"margin-top:12px;padding:12px;border-radius:10px;background:rgba(255,107,107,.08);border:1px solid rgba(255,107,107,.25);color:#ff9e9e;font-size:13px\">"+esc(res.error)+"</div>"; }
+  else if(res&&res.legs){
+    var legs="<div style=\"display:flex;gap:10px;flex-wrap:wrap;margin:12px 0\">"+res.legs.map(ulxCardLeg).join("")+"</div>";
+    var price="<div style=\"margin:6px 0;font-size:15px\"><b>Parlay price:</b> "+fmtAm(res.parlayAmerican)+"</div>";
+    var gColor=res.green?POS:GOLD; var gBg=res.green?"rgba(53,208,192,.14)":"rgba(255,194,77,.14)";
+    var greenBadge="<div style=\"display:flex;align-items:center;gap:10px;margin:8px 0;flex-wrap:wrap\"><span style=\"font-weight:800;padding:4px 11px;border-radius:8px;background:"+gBg+";color:"+gColor+"\">"+(res.green?"\u2705 GREEN LIGHT":"\u26a0\ufe0f "+res.passed+"/10")+"</span><span style=\"font-size:12.5px;color:#8b94a6\">"+res.passed+" of 10 ULX checks passed (7+ = green light)</span></div>";
+    var checks="<div style=\"display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin:6px 0;font-size:12.5px;color:#9aa3b2\">"+res.checks.map(function(c){return "<div>"+(c[1]?"\u2705 ":"\u274c ")+esc(c[0])+"</div>";}).join("")+"</div>";
+    var warns=res.warnings.length?"<div style=\"margin-top:10px;padding:10px 12px;border-radius:10px;background:rgba(255,194,77,.08);border:1px solid rgba(255,194,77,.25);color:#ffd98a;font-size:12.5px\"><b>What we avoid:</b><ul style=\"margin:6px 0 0 16px;padding:0\">"+res.warnings.map(function(w){return "<li>"+esc(w)+"</li>";}).join("")+"</ul></div>":"";
+    var swap="<div style=\"margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08)\"><div style=\"font-size:12.5px;color:#8b94a6;margin-bottom:6px\">\ud83d\udd04 Reroll a single leg \u2014 relaxes the odds band if the slate is thin:</div><div style=\"display:flex;gap:6px;flex-wrap:wrap\">"+res.legs.map(function(l,i){var col=ulxRoleColor(l.role); var n=(l.alts||0)+(l.altStretch||0); return "<button data-act=\"ulxswap\" data-i=\""+i+"\" title=\""+((l.alts||0)+" in ideal band, "+(l.altStretch||0)+" stretch picks")+"\" style=\"font-size:12px;padding:5px 9px;border-radius:8px;border:1px solid "+col+"66;background:transparent;color:"+col+";cursor:pointer\">"+ulxRoleIcon(l.role)+" Swap "+esc(l.role)+(n>1?(" \u00b7 "+n+" options"):"")+"</button>";}).join("")+"</div></div>";
+    var actions="<div style=\"margin-top:10px;display:flex;gap:8px;flex-wrap:wrap\"><button data-act=\"ulxregen\" style=\"padding:8px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:transparent;color:#c3cad6;cursor:pointer;font-weight:600;font-size:13px\">\ud83c\udfb2 Generate another variation</button><button data-act=\"ulxaddall\" style=\"padding:8px 14px;border-radius:10px;border:none;background:var(--pos);color:#0a0c11;cursor:pointer;font-weight:800;font-size:13px\">\u26a1 Add all 3 legs to slip</button></div>";
+    body=legs+price+greenBadge+checks+warns+swap+actions;
+  } else {
+    body="<div style=\"margin-top:12px;padding:12px;border-radius:10px;background:var(--surface2);border:1px dashed rgba(255,255,255,.12);font-size:12.5px;color:#8b94a6\">Tap <b>Build ULX HR parlay</b> to assemble Anchor \u2192 Value \u2192 Longshot from the current slate.</div>";
+  }
+  return "<div style=\"background:var(--surface);border:1px solid rgba(255,170,0,.35);background-image:linear-gradient(rgba(255,170,0,.05),rgba(255,170,0,.02));border-radius:16px;padding:16px;margin-bottom:18px\">"+head+body+"</div>";
+}
+function runUlxBuild(){
+  window.__ULX_STATE={rot:{Anchor:0,"Value Bat":0,Longshot:0}};
+  window.__ULX=dlBuildUlxParlay({rot:window.__ULX_STATE.rot});
+  render();
+}
+function ulxRegen(){
+  if(!window.__ULX_STATE) window.__ULX_STATE={rot:{Anchor:0,"Value Bat":0,Longshot:0}};
+  var st=window.__ULX_STATE; st.rot.Anchor=(st.rot.Anchor||0)+1; st.rot["Value Bat"]=(st.rot["Value Bat"]||0)+1; st.rot.Longshot=(st.rot.Longshot||0)+1;
+  window.__ULX=dlBuildUlxParlay({rot:st.rot}); render();
+}
+function ulxSwap(i){
+  var res=window.__ULX; if(!res||!res.legs||!res.legs[i]) return;
+  var role=res.legs[i].role; if(!window.__ULX_STATE) window.__ULX_STATE={rot:{Anchor:0,"Value Bat":0,Longshot:0}};
+  var st=window.__ULX_STATE; st.rot[role]=(st.rot[role]||0)+1;
+  var pin={}; res.legs.forEach(function(l){ if(l.role!==role) pin[l.role]=l.name; });
+  window.__ULX=dlBuildUlxParlay({rot:st.rot,pin:pin}); render();
+}
+function ulxAddAll(){
+  var res=window.__ULX; if(!res||!res.legs){ toast("Build a ULX parlay first"); return; }
+  res.legs.forEach(function(l){
+    var p=PLAYERS&&PLAYERS[l.id]; var prob=null; if(p){ (p.markets||[]).forEach(function(m){ if(/^(hr|home\s*run)$/i.test(m.label||"")) prob=(m.prob!=null?+m.prob:null); }); }
+    S.slip.push({name:l.name,market:"HR",mk:"hr",id:l.id||null,gamePk:l.gamePk||null,date:null,book:"Best",american:fmtAm(l.odds),prob:(prob!=null?prob:(l.modelProb!=null?l.modelProb:null))});
+  });
+  toast("Added 3-leg ULX parlay to slip"); render();
+}
+
 function viewBuilder(){
   var controls="<div style=\"background:var(--surface);border:1px solid var(--line2);border-radius:16px;padding:16px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-end;margin-bottom:24px\">"+
     "<div><div style=\"font-size:11px;color:#7b8597;font-weight:700;letter-spacing:.04em;margin-bottom:7px\">LEGS</div><div style=\"display:flex;gap:6px\">"+segBtns("bset","legs",[2,3,4,5],S.builder.legs)+"</div></div>"+
@@ -490,7 +654,7 @@ function viewBuilder(){
     "<div><div style=\"font-size:11px;color:#7b8597;font-weight:700;letter-spacing:.04em;margin-bottom:7px\">MARKETS</div><div style=\"display:flex;gap:6px\">"+segBtns("bset","markets",["HR only","All markets"],S.builder.markets,true)+"</div></div>"+
     "<div style=\"flex:1\"></div><button data-act=\"build\" class=\"btnp\" style=\"padding:11px 18px;border:none;border-radius:11px;cursor:pointer;font-weight:800;font-size:14px;color:#0a0c11;background:var(--ac)\">\u26A1 Build cross plays</button></div>";
   var grid="<div style=\"display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px\">"+(function(){var L=(S.oddsLive?genBuilds():BUILDS);if(!(L&&L.length))L=BUILDS;CURBUILDS=L;return L.map(buildCard).join("");})()+"</div>";
-  return "<div class=\"rise\">"+headBlock("CROSS PLAY BUILDER","Build cross-game slips","Legs across different games stay near-independent — higher true win probability than a same-game parlay at the same odds.")+controls+sectHead("\uD83E\uDDE9","Generated cross plays")+grid+"</div>";
+  return "<div class=\"rise\">"+headBlock("CROSS PLAY BUILDER","Build cross-game slips","Legs across different games stay near-independent — higher true win probability than a same-game parlay at the same odds.")+viewUlxCard()+controls+sectHead("\uD83E\uDDE9","Generated cross plays")+grid+"</div>";
 }
 
 /* ===================== DATA ===================== */
@@ -506,12 +670,12 @@ function viewData(){
     return "<tr style=\"border-top:1px solid rgba(255,255,255,.05)\"><td style=\"padding:11px 14px;font-family:'Hanken Grotesk';font-weight:600\">"+esc(r[0])+"</td><td style=\"padding:11px 10px;color:#9aa3b2\">"+esc(r[1])+"</td><td style=\"padding:11px 10px;text-align:right\">"+r[2]+"</td><td style=\"padding:11px 10px;text-align:right;color:#9aa3b2\">"+r[3]+"</td><td style=\"padding:11px 10px;text-align:right\">"+r[4]+"</td><td style=\"padding:11px 10px;text-align:right;color:"+edgec+"\">"+r[5]+"</td><td style=\"padding:11px 10px;text-align:right;color:"+evc+"\">"+r[6]+"</td><td style=\"padding:11px 10px;text-align:right;color:"+scorec+"\">"+r[7]+"</td><td style=\"padding:11px 10px;font-family:'Hanken Grotesk';font-size:12px;color:"+powerc+"\">"+esc(r[8])+"</td><td style=\"padding:11px 14px;font-family:'Hanken Grotesk';font-size:12px;color:"+fadec+"\">"+esc(r[9])+"</td></tr>";
   }).join("");
   var table="<div style=\"background:var(--surface);border:1px solid var(--line2);border-radius:16px;overflow:hidden\"><div style=\"overflow-x:auto\"><table style=\"width:100%;border-collapse:collapse;font-size:13px;min-width:760px\"><thead><tr style=\"background:var(--surface2);color:#7b8597;text-align:left\">"+th+"</tr></thead><tbody style=\"font-family:'Space Grotesk';font-variant-numeric:tabular-nums\">"+rows+"</tbody></table></div></div>";
-  return "<div class=\"rise\">"+headBlock("DATA INTELLIGENCE","Player-market feature store","Every priced player-market as a model-ready row — probability, fair odds, edge, EV, power DNA and due signals. Export for calibration.")+statRow+dlWatchSection()+dlPlayerSearch()+table+"</div>";
+  return "<div class=\"rise\">"+headBlock("DATA INTELLIGENCE","Player-market feature store","Every priced player-market as a model-ready row — probability, fair odds, edge, EV, power DNA and due signals. Export for calibration.")+statRow+table+"</div>";
 }
 
 /* ===================== TRACKING ===================== */
 function viewTrack(){
-  var kpis="<div style=\"display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:26px\">"+computeTrackKpis().map(function(o){return "<div style=\"padding:16px;border-radius:14px;background:var(--surface);border:1px solid var(--line)\"><div style=\"font-size:11.5px;color:#7b8597;font-weight:600\">"+o.k+"</div><div style=\"font-family:'Space Grotesk';font-size:30px;font-weight:700;margin-top:6px\""+(o.vc?" ":"")+">"+(o.vc?"<span style=\"color:"+o.vc+"\">"+o.v+"</span>":o.v)+"</div><div style=\"font-size:12px;color:#7b8597;margin-top:2px\">"+o.s+"</div></div>";}).join("")+"</div>";
+  var kpis="<div style=\"display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:26px\">"+TRACK_KPIS.map(function(o){return "<div style=\"padding:16px;border-radius:14px;background:var(--surface);border:1px solid var(--line)\"><div style=\"font-size:11.5px;color:#7b8597;font-weight:600\">"+o.k+"</div><div style=\"font-family:'Space Grotesk';font-size:30px;font-weight:700;margin-top:6px\""+(o.vc?" ":"")+">"+(o.vc?"<span style=\"color:"+o.vc+"\">"+o.v+"</span>":o.v)+"</div><div style=\"font-size:12px;color:#7b8597;margin-top:2px\">"+o.s+"</div></div>";}).join("")+"</div>";
   var saved=SAVED.map(function(p){return "<div style=\"background:var(--surface);border:1px solid var(--line2);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap"+(p.dim?";opacity:.78":"")+"\"><span style=\"font-size:11px;font-weight:700;padding:5px 11px;border-radius:20px;background:"+p.stbg+";color:"+p.stc+"\">"+p.st+"</span><div style=\"flex:1;min-width:180px\"><div style=\"font-weight:700;font-size:14px\">"+esc(p.t)+"</div><div style=\"font-size:12px;color:#7b8597\">"+esc(p.d)+"</div></div><span style=\"font-size:11.5px;font-weight:700;padding:5px 10px;border-radius:8px;background:"+p.clvbg+";color:"+p.clvc+"\">"+p.clv+"</span><div style=\"text-align:right\"><div style=\"font-family:'Space Grotesk';font-weight:700;font-size:16px;color:"+p.oddsc+"\">"+p.odds+"</div><div style=\"font-size:11px;color:#7b8597\">"+esc(p.sub)+"</div></div></div>";}).join("");
   var report="<div style=\"background:var(--surface);border:1px solid var(--line2);border-radius:16px;padding:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px\">"+REPORT.map(function(r){return "<div style=\"padding:12px;border-radius:11px;background:var(--surface2)\"><div style=\"font-size:11px;color:#7b8597;font-weight:600\">"+r[0]+"</div><div style=\"font-family:'Space Grotesk';font-size:20px;font-weight:700;margin-top:4px\">"+r[1]+"</div>"+(r[2]?"<div style=\"font-size:11px;color:"+(r[3]||"#7b8597")+"\">"+r[2]+"</div>":"")+"</div>";}).join("")+"</div>";
   return "<div class=\"rise\">"+headBlock("TRACKING & CLV","Closing-line value","Beating the close consistently = real edge — visible in weeks, not months. Each leg freezes its bet-time price vs the closing line.")+kpis+sectHead("\uD83D\uDCCB","Saved parlays")+"<div style=\"display:flex;flex-direction:column;gap:10px\">"+saved+"</div><div style=\"margin-top:26px\">"+sectHead("\uD83D\uDCCA","Model report card")+report+"</div></div>";
@@ -532,26 +696,16 @@ function viewTools(){
   var guards=GUARDS2.map(function(g){return "<div style=\"display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-radius:11px;background:var(--surface2)\"><span style=\"font-size:13px;color:#c3cad6\">"+g[0]+"</span><span style=\"font-family:'Space Grotesk';font-weight:700;font-size:16px"+(g[2]?";color:"+g[2]:"")+"\">"+g[1]+"</span></div>";}).join("");
   var exposure="<div style=\"background:var(--surface);border:1px solid var(--line2);border-radius:16px;padding:18px\"><div style=\"display:flex;align-items:center;gap:9px;margin-bottom:14px\"><span style=\"font-size:17px\">\uD83C\uDFAF</span><div style=\"font-family:'Space Grotesk';font-weight:700;font-size:15px\">Exposure guardrails</div></div><div style=\"display:flex;flex-direction:column;gap:13px\">"+guards+"</div></div>";
   var cards=TOOLCARDS.map(function(c){return "<div data-act=\"toolcard\" data-v=\""+esc(c[1])+"\" class=\"hovcard\" style=\"background:var(--surface);border:1px solid var(--line2);border-radius:16px;padding:16px;cursor:pointer\"><div style=\"font-size:22px;margin-bottom:9px\">"+c[0]+"</div><div style=\"font-family:'Space Grotesk';font-weight:700;font-size:14.5px\">"+esc(c[1])+"</div><div style=\"font-size:12.5px;color:#8b94a6;margin-top:4px;line-height:1.4\">"+esc(c[2])+"</div></div>";}).join("");
-  return "<div class=\"rise\">"+headBlock("TOOLS & METHODOLOGY","Controls & exports","Manual entry, model tuning, exposure guardrails, exports and methodology — the deeper machinery, out of the main flow.")+"<div style=\"display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-bottom:14px\">"+settings+exposure+"</div><div style=\"display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px\">"+dlSyncCard()+cards+"</div></div>";
+  return "<div class=\"rise\">"+headBlock("TOOLS & METHODOLOGY","Controls & exports","Manual entry, model tuning, exposure guardrails, exports and methodology — the deeper machinery, out of the main flow.")+"<div style=\"display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-bottom:14px\">"+settings+exposure+"</div><div style=\"display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px\">"+cards+"</div></div>";
 }
 
 /* ===================== LIVE ===================== */
 function viewLive(){
-  var pollOn=!!S.autopoll;
-  var agoTxt=dlAgo(LIVE_LAST_MS);
-  var statusTxt=pollOn?("Auto-poll on \u00b7 updated "+agoTxt):(LIVE_LAST_MS?("Auto-poll off \u00b7 last "+agoTxt):"Auto-poll off \u00b7 not refreshed yet");
-  var statusCol=pollOn?POS:"#9aa3b2";
-  var statusBg=pollOn?"rgba(53,208,192,.08)":"var(--surface)";
-  var statusBd=pollOn?"rgba(53,208,192,.22)":"var(--line)";
-  var dot=pollOn?("<span style='width:7px;height:7px;border-radius:50%;background:"+POS+";animation:dlpulse 1.6s infinite'></span>"):"<span style='width:7px;height:7px;border-radius:50%;background:#7b8597'></span>";
-  var toggle="<button data-act='togglepoll' class='btng' style='padding:8px 12px;border:1px solid rgba(255,255,255,.14);border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;color:"+(pollOn?"#0a0c11":"#c3cad6")+";background:"+(pollOn?"var(--ac)":"transparent")+"'>"+(pollOn?"\u23f8 Auto-poll on":"\u25b6 Auto-poll off")+"</button>";
-  var refresh="<button data-act='refreshlive' class='btng' style='padding:8px 12px;border:1px solid rgba(255,255,255,.14);border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;color:#c3cad6;background:transparent'>"+(S.liveLoading?"\u21bb Refreshing":"\u21bb Refresh now")+"</button>";
-  var head="<div style='display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px'><div><div style='font-size:11px;letter-spacing:.14em;color:var(--ac);font-weight:700;margin-bottom:6px'>LIVE HR FEED</div><h1 style='margin:0;font-size:28px;font-weight:700;letter-spacing:-.02em'>Dingers as they happen</h1></div><div style='display:flex;align-items:center;gap:8px;flex-wrap:wrap'>"+toggle+refresh+"<div style='display:flex;align-items:center;gap:8px;padding:8px 13px;border-radius:10px;background:"+statusBg+";border:1px solid "+statusBd+"'>"+dot+"<span style='font-size:12.5px;font-weight:600;color:"+statusCol+"'>"+esc(statusTxt)+"</span></div></div></div>";
-  var ev=LIVE_EV.length?LIVE_EV.map(function(e){var badge=e.on?("<span style='font-size:10.5px;font-weight:700;padding:4px 9px;border-radius:7px;background:rgba(53,208,192,.14);color:"+POS+"'>on board \u2713</span>"):"<span style='font-size:10.5px;font-weight:700;padding:4px 9px;border-radius:7px;background:rgba(255,255,255,.06);color:#9aa3b2'>off board</span>";return "<div style='display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:14px;background:var(--surface);border:1px solid "+e.bd+"'><div style='font-size:24px'>"+e.ic+"</div><div style='flex:1;min-width:0'><div style='font-weight:700;font-size:15px'>"+esc(e.name)+" <span style='font-size:12px;color:#7b8597;font-weight:500'>"+esc(e.det)+"</span></div><div style='font-size:12px;color:#8b94a6;margin-top:2px'>"+esc(e.sub)+"</div></div>"+badge+"</div>";}).join(""):("<div style='padding:34px 18px;border-radius:14px;background:var(--surface);border:1px dashed rgba(255,255,255,.12);text-align:center;color:#7b8597;font-size:13px;line-height:1.5'>"+(S.liveLoading?"Loading live game feed\u2026":"No home runs yet. Turn on Auto-poll or tap Refresh now \u2014 dingers appear here live during games.")+"</div>");
-  var T=LIVE_TRACKER||{hit:0,total:0,predicted:0,slate:0,pct:0,pending:0};
-  var tracker="<div style='background:var(--surface);border:1px solid var(--line2);border-radius:16px;padding:18px;text-align:center;margin-bottom:11px'><div style='font-size:12px;color:#7b8597;font-weight:600'>BOARD HRs HIT</div><div style='font-family:\"Space Grotesk\";font-size:40px;font-weight:700;margin:6px 0;color:var(--ac)'>"+(T.hit||0)+"<span style='color:#3a4150;font-size:28px'> / "+(T.total||0)+"</span></div><div style='height:8px;border-radius:8px;background:rgba(255,255,255,.08);overflow:hidden'><div style='width:"+(T.pct||0)+"%;height:100%;background:linear-gradient(90deg,var(--ac),#ff5ea8)'></div></div><div style='font-size:12px;color:#8b94a6;margin-top:10px'>"+(T.pending||0)+" still pending across live games</div></div>";
-  var stats=[["Predicted today",(T.predicted||0)+" HRs",""],["Hit so far",String(T.hit||0),POS],["Slate HRs total",String(T.slate||0),""]].map(function(s){return "<div style='display:flex;justify-content:space-between;font-size:12.5px;padding:9px 12px;border-radius:10px;background:var(--surface2)'><span style='color:#9aa3b2'>"+s[0]+"</span><span style='font-family:\"Space Grotesk\";font-weight:700"+(s[2]?";color:"+s[2]:"")+"'>"+s[1]+"</span></div>";}).join("");
-  return "<div class='rise'>"+head+"<div style='display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,.6fr);gap:18px'><div>"+sectHead("\ud83d\udca5","HR events")+"<div style='display:flex;flex-direction:column;gap:10px'>"+ev+"</div></div><div>"+sectHead("\ud83c\udfaf","Hit tracker")+tracker+"<div style='display:flex;flex-direction:column;gap:8px'>"+stats+"</div></div></div></div>";
+  var head="<div style=\"display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:18px\"><div><div style=\"font-size:11px;letter-spacing:.14em;color:var(--ac);font-weight:700;margin-bottom:6px\">LIVE HR FEED</div><h1 style=\"margin:0;font-size:28px;font-weight:700;letter-spacing:-.02em\">Dingers as they happen</h1></div><div style=\"display:flex;align-items:center;gap:8px;padding:8px 13px;border-radius:10px;background:rgba(53,208,192,.08);border:1px solid rgba(53,208,192,.22)\"><span style=\"width:7px;height:7px;border-radius:50%;background:"+POS+";animation:dlpulse 1.6s infinite\"></span><span style=\"font-size:12.5px;font-weight:600;color:"+POS+"\">Polling · 6 games live · 8s ago</span></div></div>";
+  var ev=LIVE_EV.map(function(e){var badge=e.on?"<span style=\"font-size:10.5px;font-weight:700;padding:4px 9px;border-radius:7px;background:rgba(53,208,192,.14);color:"+POS+"\">on board ✓</span>":"<span style=\"font-size:10.5px;font-weight:700;padding:4px 9px;border-radius:7px;background:rgba(255,255,255,.06);color:#9aa3b2\">off board</span>";return "<div style=\"display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:14px;background:var(--surface);border:1px solid "+e.bd+"\"><div style=\"font-size:24px\">"+e.ic+"</div><div style=\"flex:1;min-width:0\"><div style=\"font-weight:700;font-size:15px\">"+esc(e.name)+" <span style=\"font-size:12px;color:#7b8597;font-weight:500\">"+esc(e.det)+"</span></div><div style=\"font-size:12px;color:#8b94a6;margin-top:2px\">"+esc(e.sub)+"</div></div>"+badge+"</div>";}).join("");
+  var tracker="<div style=\"background:var(--surface);border:1px solid var(--line2);border-radius:16px;padding:18px;text-align:center;margin-bottom:11px\"><div style=\"font-size:12px;color:#7b8597;font-weight:600\">BOARD HRs HIT</div><div style=\"font-family:'Space Grotesk';font-size:40px;font-weight:700;margin:6px 0;color:var(--ac)\">2<span style=\"color:#3a4150;font-size:28px\"> / 7</span></div><div style=\"height:8px;border-radius:8px;background:rgba(255,255,255,.08);overflow:hidden\"><div style=\"width:29%;height:100%;background:linear-gradient(90deg,var(--ac),#ff5ea8)\"></div></div><div style=\"font-size:12px;color:#8b94a6;margin-top:10px\">5 still pending across live games</div></div>";
+  var stats=[["Predicted today","7 HRs",""],["Hit so far","2",POS],["Slate HRs total","4",""]].map(function(s){return "<div style=\"display:flex;justify-content:space-between;font-size:12.5px;padding:9px 12px;border-radius:10px;background:var(--surface2)\"><span style=\"color:#9aa3b2\">"+s[0]+"</span><span style=\"font-family:'Space Grotesk';font-weight:700"+(s[2]?";color:"+s[2]:"")+"\">"+s[1]+"</span></div>";}).join("");
+  return "<div class=\"rise\">"+head+"<div style=\"display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,.6fr);gap:18px\"><div>"+sectHead("\uD83D\uDCA5","HR events")+"<div style=\"display:flex;flex-direction:column;gap:10px\">"+ev+"</div></div><div>"+sectHead("\uD83C\uDFAF","Hit tracker")+tracker+"<div style=\"display:flex;flex-direction:column;gap:8px\">"+stats+"</div></div></div></div>";
 }
 
 /* ===================== BET SLIP ===================== */
@@ -617,7 +771,7 @@ function drawerEl(){
   var m0=p.markets[0];
   return "<div data-act=\"closeDrawer\" style=\"position:fixed;inset:0;z-index:90;background:rgba(5,6,9,.6);backdrop-filter:blur(3px);animation:dlrise .2s ease both\"></div>"+
     "<div style=\"position:fixed;top:0;right:0;bottom:0;z-index:91;width:min(460px,94vw);background:#0d0f15;border-left:1px solid rgba(255,255,255,.1);box-shadow:-30px 0 80px rgba(0,0,0,.5);overflow:auto;animation:dlslide .26s cubic-bezier(.2,.8,.2,1) both\">"+
-    "<div style=\"position:sticky;top:0;z-index:2;background:rgba(13,15,21,.92);backdrop-filter:blur(10px);padding:18px 20px;border-bottom:1px solid var(--line2)\"><div style=\"display:flex;align-items:flex-start;justify-content:space-between;gap:12px\"><div><div style=\"font-size:11px;letter-spacing:.12em;color:var(--ac);font-weight:700\">INTELLIGENCE REPORT</div><h2 style=\"margin:5px 0 2px;font-size:23px;font-weight:700\">"+esc(p.name)+"</h2><div style=\"font-size:13px;color:#8b94a6\">"+esc(p.sub)+(p.platoon?(" \u00b7 "+esc(p.platoon)):"")+"</div></div><button data-act=\"watch\" data-player=\""+esc(p.id||"")+"\" style=\"width:34px;height:34px;flex:none;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:#161a24;color:"+(dlIsWatched(p.id)?GOLD:"#9aa3b2")+";cursor:pointer;font-size:17px\">"+(dlIsWatched(p.id)?"\u2605":"\u2606")+"</button><button data-act=\"closeDrawer\" style=\"width:34px;height:34px;flex:none;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:#161a24;color:#9aa3b2;cursor:pointer;font-size:17px\">✕</button></div><div style=\"display:flex;gap:7px;margin-top:13px;flex-wrap:wrap\">"+chips+"</div></div>"+
+    "<div style=\"position:sticky;top:0;z-index:2;background:rgba(13,15,21,.92);backdrop-filter:blur(10px);padding:18px 20px;border-bottom:1px solid var(--line2)\"><div style=\"display:flex;align-items:flex-start;justify-content:space-between;gap:12px\"><div><div style=\"font-size:11px;letter-spacing:.12em;color:var(--ac);font-weight:700\">INTELLIGENCE REPORT</div><h2 style=\"margin:5px 0 2px;font-size:23px;font-weight:700\">"+esc(p.name)+"</h2><div style=\"font-size:13px;color:#8b94a6\">"+esc(p.sub)+"</div></div><button data-act=\"closeDrawer\" style=\"width:34px;height:34px;flex:none;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:#161a24;color:#9aa3b2;cursor:pointer;font-size:17px\">✕</button></div><div style=\"display:flex;gap:7px;margin-top:13px;flex-wrap:wrap\">"+chips+"</div></div>"+
     "<div style=\"padding:20px\"><div style=\"display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center;margin-bottom:20px\">"+
       "<div style=\"position:relative;width:96px;height:96px;flex:none;border-radius:50%;background:conic-gradient(var(--ac) "+p.score+"%,rgba(255,255,255,.08) 0);display:grid;place-items:center\"><div style=\"width:76px;height:76px;border-radius:50%;background:#0d0f15;display:grid;place-items:center;flex-direction:column\"><span style=\"font-family:'Space Grotesk';font-weight:700;font-size:30px;line-height:1\">"+p.score+"</span><span style=\"font-size:10px;color:#7b8597;font-weight:600;letter-spacing:.05em\">DINGER</span></div></div>"+
       "<div><div style=\"margin-bottom:7px\">"+starHTML(p.stars,17)+"</div><div style=\"font-size:12px;color:#9aa3b2;font-weight:600;margin-bottom:5px\">DUE METER · "+esc(p.dueLabel)+"</div><div style=\"height:9px;border-radius:9px;background:rgba(255,255,255,.08);overflow:hidden;position:relative\"><div style=\"height:100%;width:"+p.duePct+";background:linear-gradient(90deg,var(--ac),#ff5ea8)\"></div></div></div></div>"+
@@ -635,9 +789,90 @@ function viewRouter(){
     case"research":return viewResearch();
     case"track":return viewTrack();
     case"tools":return viewTools();
+    case"ulx":return viewULX();
     case"live":return viewLive();
     default:return viewDashboard();
   }
+}
+
+/* ===================== ULX SHEET ===================== */
+function ulxDay(){var d=new Date();return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());}
+function ulxLoad(){try{var r=localStorage.getItem("ulx-"+ulxDay());return r?JSON.parse(r):null;}catch(e){return null;}}
+function ulxSave(){try{localStorage.setItem("ulx-"+ulxDay(),JSON.stringify(S.ulx));}catch(e){}}
+function ulxInit(){
+  if(S.ulx) return;
+  var d=ulxLoad();
+  S.ulx=d||{mode:"2leg",
+    s1:{advance:false,remove:false,exception:false},
+    s2:{smasher:false,young:false,veteran:false,pullside:false,lowlineup:false,athletic:false},
+    s3:{platoon:false,flyballs:false,hard:false,issues:false,bullpen:false},
+    s4:{wind:false,warm:false,park:false,goodhr:false,roof:false},
+    s5:{top6:false,bottom:false},
+    s6:{pass:false},
+    pairs:{sharp:"",bridge:"",deep:""},
+    rm:{famous:false,yesterday:false,twitter:false,teammates:false,nolineup:false,oddshigh:false},
+    score:{names:"",final:"",slips:"",hrs:"",wins:"",mistakes:""},
+    mist:{badread:false,badpair:false,weather:false,wrongarch:false,chased:false,noprocess:false,other:""},
+    followed:null};
+}
+function ulxChk(k,checked,label){
+  return "<label data-act=\"ulxtoggle\" data-k=\""+k+"\" style=\"display:flex;align-items:flex-start;gap:9px;font-size:13px;color:#cdd3df;cursor:pointer;padding:4px 0;line-height:1.35\"><span style=\"flex:0 0 16px;width:16px;height:16px;border-radius:4px;border:1.5px solid "+(checked?AC:"#3b4254")+";background:"+(checked?AC:"transparent")+";display:inline-flex;align-items:center;justify-content:center;color:#0a0c11;font-size:11px;font-weight:900;margin-top:1px\">"+(checked?"\u2713":"")+"</span><span>"+label+"</span></label>";
+}
+function ulxCard(num,title,body,footer,footCol){
+  return "<div style=\"background:var(--surface);border:1px solid var(--line2);border-radius:14px;padding:14px;display:flex;flex-direction:column;min-height:230px\"><div style=\"display:flex;align-items:center;gap:9px;margin-bottom:10px\"><span style=\"width:24px;height:24px;border-radius:6px;background:"+AC+";color:#0a0c11;font-weight:900;font-size:13px;display:inline-flex;align-items:center;justify-content:center\">"+num+"</span><span style=\"font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#eef1f6\">"+title+"</span></div><div style=\"flex:1\">"+body+"</div>"+(footer?"<div style=\"margin-top:10px;padding-top:9px;border-top:1px dashed #2a3140;font-size:11.5px;color:"+(footCol||"#7b8597")+";font-weight:700;letter-spacing:.03em;text-transform:uppercase\">"+footer+"</div>":"")+"</div>";
+}
+function ulxNumIn(k,val,label){
+  return "<div style=\"display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #1f2532;font-size:12.5px;color:#cdd3df\"><span>"+label+"</span><input data-ulx=\"score."+k+"\" value=\""+esc(val||"")+"\" style=\"width:70px;background:transparent;border:none;border-bottom:1px solid #3b4254;color:#eef1f6;text-align:right;font-family:'Space Grotesk';font-size:13px;outline:none\"></div>";
+}
+function viewULX(){
+  ulxInit();
+  var U=S.ulx, is3=(U.mode==="3leg");
+  var slate=Object.keys(PLAYERS||{}).length;
+  var pool=0;
+  Object.keys(PLAYERS||{}).forEach(function(id){var p=PLAYERS[id];var am=parseAm(p.best||p.odds);if(am!=null&&am>=800)pool++;});
+  var dlistOpts="";
+  Object.keys(PLAYERS||{}).forEach(function(id){dlistOpts+="<option value=\""+esc(PLAYERS[id].name)+"\">";});
+  var dlist="<datalist id=\"ulxPlayers\">"+dlistOpts+"</datalist>";
+
+  var head="<div style=\"display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:18px;gap:18px;flex-wrap:wrap\"><div><div style=\"font-size:11px;letter-spacing:.14em;color:"+AC+";font-weight:700;margin-bottom:6px\">ACCOUNTABILITY SHEET</div><h1 style=\"margin:0;font-size:28px;font-weight:700;letter-spacing:-.02em\">ULX "+(is3?"3-Leg":"2-Leg")+" HR Sheet</h1><div style=\"margin-top:6px;font-size:12px;color:#7b8597;font-style:italic\">Process over emotions \u00b7 Filtration over volume \u00b7 Value over name</div></div><div style=\"display:flex;gap:7px;align-items:center\"><span data-act=\"ulxmode\" data-m=\"2leg\" class=\"chip\" style=\"font-size:12.5px;font-weight:700;padding:8px 14px;border-radius:9px;background:"+(!is3?AC:"var(--surface)")+";"+(!is3?"color:#0a0c11":"border:1px solid rgba(255,255,255,.1);color:#9aa3b2")+";cursor:pointer\">2-Leg</span><span data-act=\"ulxmode\" data-m=\"3leg\" class=\"chip\" style=\"font-size:12.5px;font-weight:700;padding:8px 14px;border-radius:9px;background:"+(is3?AC:"var(--surface)")+";"+(is3?"color:#0a0c11":"border:1px solid rgba(255,255,255,.1);color:#9aa3b2")+";cursor:pointer\">3-Leg</span><span data-act=\"ulxreset\" style=\"font-size:11px;color:#7b8597;cursor:pointer;padding:8px 10px;border:1px solid #2a3140;border-radius:8px\">Reset today</span></div></div>";
+
+  var s1=ulxCard("1","Board Filtration","<div style=\"text-align:center;font-size:32px;font-weight:800;color:"+AC+";letter-spacing:-.02em;line-height:1\">"+pool+"<span style=\"font-size:14px;color:#7b8597;font-weight:600;margin-left:8px\">of "+slate+"</span></div><div style=\"text-align:center;font-size:11px;color:#7b8597;margin-top:4px\">players \u2265 +800 on the live board</div><div style=\"margin-top:12px\"><div style=\"font-size:11px;color:"+WARN+";font-weight:700;margin-bottom:4px\">IF UNDER +800</div>"+ulxChk("s1.remove",U.s1.remove,"Remove from pool")+ulxChk("s1.exception",U.s1.exception,"Absolute exception spot only")+"<div style=\"font-size:11px;color:"+POS+";font-weight:700;margin-top:8px;margin-bottom:4px\">IF +800 OR HIGHER</div>"+ulxChk("s1.advance",U.s1.advance,"Advance to next round")+"</div>","Goal: cut 40+ names to 15-20");
+
+  var s2=ulxCard("2","Archetype Check","<div style=\"font-size:12px;color:#9aa3b2;margin-bottom:6px\">Does he fit at least ONE?</div>"+ulxChk("s2.smasher",U.s2.smasher,"Same-handed smasher")+ulxChk("s2.young",U.s2.young,"Young aggressive bat")+ulxChk("s2.veteran",U.s2.veteran,"Veteran barrel guy")+ulxChk("s2.pullside",U.s2.pullside,"Pull-side flyball hitter")+ulxChk("s2.lowlineup",U.s2.lowlineup,"Low-lineup power bat")+ulxChk("s2.athletic",U.s2.athletic,"Athletic / fast-twitch pop"),"If none apply: \u2717 REMOVE",WARN);
+
+  var s3=ulxCard("3","Matchup Check",ulxChk("s3.platoon",U.s3.platoon,"Platoon advantage")+ulxChk("s3.flyballs",U.s3.flyballs,"Pitcher gives up fly balls")+ulxChk("s3.hard",U.s3.hard,"Pitcher gives up hard contact")+ulxChk("s3.issues",U.s3.issues,"Pitcher has HR issues")+ulxChk("s3.bullpen",U.s3.bullpen,"Weak bullpen behind him"),"Need at least 2 checks to advance",POS);
+
+  var s4=ulxCard("4","Environment Check",ulxChk("s4.wind",U.s4.wind,"Wind out")+ulxChk("s4.warm",U.s4.warm,"Warm weather")+ulxChk("s4.park",U.s4.park,"Small park")+ulxChk("s4.goodhr",U.s4.goodhr,"Good HR environment")+ulxChk("s4.roof",U.s4.roof,"Roof open"),"If environment sucks: \u2717 DOWNGRADE",WARN);
+
+  var s5=ulxCard("5","Lineup Check","<div style=\"font-size:12px;color:#9aa3b2;margin-bottom:6px\">Batting position</div>"+ulxChk("s5.top6",U.s5.top6,"Batting 1-6 (preferred)")+"<div style=\"font-size:11px;color:#7b8597;text-align:center;margin:6px 0\">OR</div>"+ulxChk("s5.bottom",U.s5.bottom,"Batting 7-9 with legit power"),"Need a path to 4+ plate appearances",POS);
+
+  var s6=ulxCard("6","ULX Value Test","<div style=\"font-size:13px;color:#cdd3df;font-style:italic;text-align:center;padding:14px 4px;line-height:1.5\">\u201CWould I still like this guy if nobody knew his name?\u201D</div>"+ulxChk("s6.pass",U.s6.pass,"Yes \u2014 keep him in the pool"),"If NO: \u2717 REMOVE \u00b7 Eliminates public bias",WARN);
+
+  var steps="<div style=\"display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin-bottom:14px\">"+s1+s2+s3+s4+"</div><div style=\"display:grid;grid-template-columns:repeat(2,1fr);gap:11px;margin-bottom:18px\">"+s5+s6+"</div>";
+
+  var legCard=function(title,col,desc,range,traits,key){
+    return "<div style=\"flex:1;background:#11141c;border:1px solid "+col+"66;border-radius:11px;padding:13px;min-width:0\"><div style=\"font-size:11px;letter-spacing:.06em;font-weight:700;color:"+col+";margin-bottom:4px\">"+title+"</div><div style=\"font-size:12px;color:#9aa3b2;margin-bottom:9px;line-height:1.4\">"+desc+"</div><div style=\"font-size:11px;color:#7b8597;margin-bottom:3px\">Usually:</div><div style=\"font-size:12px;color:#cdd3df;line-height:1.6\">"+range+"<br>"+traits+"</div><div style=\"margin-top:11px\"><input data-ulx=\"pairs."+key+"\" list=\"ulxPlayers\" value=\""+esc(U.pairs[key]||"")+"\" placeholder=\"Player name\" style=\"width:100%;background:#0a0c11;border:1px solid #2a3140;border-radius:8px;padding:8px 10px;color:#eef1f6;font-size:13px;outline:none;box-sizing:border-box\"></div></div>";
+  };
+  var legs=legCard("LEG 1 \u2014 SHARP LEG",POS,"The one you would least be surprised homers","+800 to +1000 \u00b7 best matchup","Best environment \u00b7 safe power profile","sharp");
+  if(is3) legs+=legCard("LEG 2 \u2014 BRIDGE LEG",PURPLE,"Middle-confidence value (3-leg only)","+1000 to +1500 \u00b7 solid archetype","Decent matchup \u00b7 some hidden upside","bridge");
+  legs+=legCard("LEG "+(is3?"3":"2")+" \u2014 DEEP SPACE LEG",PINK,"The one the public ignores",(is3?"+1500 to +2500":"+1000 to +1800")+" \u00b7 hidden power","Weird archetype \u00b7 low ownership","deep");
+  var pairing="<div style=\"background:var(--surface);border:1px solid var(--line2);border-radius:14px;padding:16px;margin-bottom:18px\"><div style=\"font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:"+GOLD+";text-align:center;margin-bottom:14px\">\u2605 Pairing Rules \u2605</div><div style=\"display:flex;gap:11px;align-items:stretch;flex-wrap:wrap\">"+legs+"</div><div style=\"margin-top:12px;text-align:center;font-size:11.5px;color:"+GOLD+";font-weight:700;letter-spacing:.04em\">GOAL: BALANCE UPSIDE + VALUE \u2014 NOT JUST PICKING "+(is3?"THREE":"TWO")+" RANDOM NAMES</div></div>";
+
+  var rmItem=function(k,label){return "<div style=\"flex:1;min-width:100px;text-align:center\"><label data-act=\"ulxtoggle\" data-k=\"rm."+k+"\" style=\"display:block;cursor:pointer\"><div style=\"width:44px;height:44px;border-radius:50%;border:2px solid "+(U.rm[k]?WARN:"#3b4254")+";background:"+(U.rm[k]?WARN+"22":"transparent")+";display:inline-flex;align-items:center;justify-content:center;font-size:20px;color:"+(U.rm[k]?WARN:"#7b8597")+";margin:0 auto 5px\">\u2717</div><div style=\"font-size:11px;color:#9aa3b2;line-height:1.35\">"+label+"</div></label></div>";};
+  var removals="<div style=\"background:#1a0d10;border:1px solid "+WARN+"40;border-radius:14px;padding:14px 16px;margin-bottom:18px\"><div style=\"text-align:center;font-size:12px;font-weight:700;letter-spacing:.08em;color:"+WARN+";margin-bottom:12px\">\u2014 AUTOMATIC REMOVALS \u2014</div><div style=\"display:flex;gap:8px;flex-wrap:wrap;justify-content:space-around\">"+rmItem("famous","Famous name")+rmItem("yesterday","Homered yesterday")+rmItem("twitter","Twitter loves him")+rmItem("teammates","Two teammates just because")+rmItem("nolineup","No lineup check")+rmItem("oddshigh","Only because odds are high")+"</div></div>";
+
+  var scorecard="<div style=\"background:var(--surface);border:1px solid var(--line2);border-radius:14px;padding:14px\"><div style=\"font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#eef1f6;margin-bottom:10px\">Daily Scorecard</div>"+ulxNumIn("names",U.score.names,"Names considered")+"<div style=\"display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #1f2532;font-size:12.5px;color:#cdd3df\"><span>After +800 filter (auto)</span><span style=\"font-family:'Space Grotesk';color:"+AC+";font-weight:700\">"+pool+"</span></div>"+ulxNumIn("final",U.score.final,"Final pool")+ulxNumIn("slips",U.score.slips,(is3?"3":"2")+"-leg slips played")+ulxNumIn("hrs",U.score.hrs,"HRs hit")+ulxNumIn("wins",U.score.wins,"Winning pairings")+ulxNumIn("mistakes",U.score.mistakes,"Mistakes made")+"</div>";
+
+  var mistakes="<div style=\"background:var(--surface);border:1px solid var(--line2);border-radius:14px;padding:14px\"><div style=\"font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#eef1f6;margin-bottom:10px\">Mistakes / reasons for losses</div>"+ulxChk("mist.badread",U.mist.badread,"Bad read")+ulxChk("mist.badpair",U.mist.badpair,"Bad pairing")+ulxChk("mist.weather",U.mist.weather,"Weather")+ulxChk("mist.wrongarch",U.mist.wrongarch,"Wrong archetype")+ulxChk("mist.chased",U.mist.chased,"Chased name value")+ulxChk("mist.noprocess",U.mist.noprocess,"Didn't follow process")+"<div style=\"margin-top:8px\"><input data-ulx=\"mist.other\" value=\""+esc(U.mist.other||"")+"\" placeholder=\"Other...\" style=\"width:100%;background:#11141c;border:1px solid #2a3140;border-radius:8px;padding:7px 9px;color:#eef1f6;font-size:13px;outline:none;box-sizing:border-box\"></div></div>";
+
+  var folYes=U.followed===true, folNo=U.followed===false;
+  var tracker="<div style=\"background:linear-gradient(180deg,#1c1a14,#13110d);border:1px solid "+GOLD+"66;border-radius:14px;padding:18px;text-align:center\"><div style=\"font-size:12px;font-weight:700;letter-spacing:.06em;color:"+GOLD+";margin-bottom:8px\">THE BIGGEST THING TO TRACK</div><div style=\"font-size:16px;color:#eef1f6;margin-bottom:14px;line-height:1.4\">Did I follow the process today?</div><div style=\"display:flex;gap:9px;justify-content:center;margin-bottom:10px\"><span data-act=\"ulxfollow\" data-v=\"yes\" class=\"chip\" style=\"padding:9px 18px;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;background:"+(folYes?POS:"transparent")+";color:"+(folYes?"#0a0c11":POS)+";border:1.5px solid "+POS+"\">YES</span><span data-act=\"ulxfollow\" data-v=\"no\" class=\"chip\" style=\"padding:9px 18px;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;background:"+(folNo?WARN:"transparent")+";color:"+(folNo?"#0a0c11":WARN)+";border:1.5px solid "+WARN+"\">NO</span></div><div style=\"font-size:11.5px;color:"+GOLD+";font-style:italic;letter-spacing:.04em\">Stay disciplined. Trust the process. Let value work.</div></div>";
+
+  var bottom="<div style=\"display:grid;grid-template-columns:1fr 1fr 1fr;gap:11px;margin-bottom:14px\">"+scorecard+mistakes+tracker+"</div>";
+
+  var footer="<div style=\"display:flex;gap:24px;justify-content:center;padding:14px 0;color:#9aa3b2;font-size:12px;font-weight:600;letter-spacing:.04em;flex-wrap:wrap\"><span>\uD83E\uDDE0 LESS NAMES \u00b7 LESS NOISE</span><span>\uD83D\uDCCA BETTER FILTRATION \u00b7 BETTER VALUE</span><span style=\"color:"+GOLD+"\">\uD83D\uDC51 FIND THE RIGHT HOMERS</span></div>";
+
+  return "<div class=\"rise\">"+head+steps+pairing+removals+bottom+footer+dlist+"</div>";
 }
 
 function render(){
@@ -702,81 +937,6 @@ function applyBoard(b){
   NAMEIDX={}; Object.keys(PLAYERS).forEach(function(id){NAMEIDX[norm(PLAYERS[id].name)]=id;});
   return true;
 }
-/* ===================== USER KEY + AUTOPOLL + SEARCH ===================== */
-function dlUserKey(){
-  try{
-    var k=localStorage.getItem("dl_user_key");
-    if(!k){ k="u"+Math.random().toString(36).slice(2,8)+Date.now().toString(36).slice(-4); localStorage.setItem("dl_user_key",k); }
-    return k;
-  }catch(e){ return "default"; }
-}
-function dlSetUserKey(k){
-  k=String(k||"").trim().toLowerCase().replace(/[^a-z0-9_-]/g,"");
-  if(!k){ toast("Enter a valid sync key"); return; }
-  try{ localStorage.setItem("dl_user_key",k); }catch(e){}
-  toast("Synced to key \u00b7 pulling tracked bets");
-  dlSync({grade:true});
-}
-function dlAgo(ms){
-  if(!ms) return "never";
-  var s=Math.max(0,Math.round((Date.now()-ms)/1000));
-  if(s<5) return "just now";
-  if(s<60) return s+"s ago";
-  var m=Math.round(s/60); if(m<60) return m+"m ago";
-  return Math.round(m/60)+"h ago";
-}
-var _DL_POLL=null,_DL_TICK=null;
-function refreshLiveData(){
-  if(typeof loadLive==="function") loadLive();
-  fetch(CFG.backend+"/api/board?league=mlb",{mode:"cors"}).then(function(r){return r.ok?r.json():null;}).then(function(b){
-    if(b&&b.source==="live"&&b.playCount>0){ applyBoard(b); S.oddsLive=true; if(b.games&&b.games.length) S.gameCount=b.games.length; }
-  }).catch(function(){});
-  S.lastPoll=Date.now();
-}
-function startAutoPoll(){
-  stopAutoPoll(); S.autopoll=true;
-  refreshLiveData();
-  _DL_POLL=setInterval(refreshLiveData,60000);
-  _DL_TICK=setInterval(function(){ if(S.tab==="live") render(); },5000);
-}
-function stopAutoPoll(){
-  S.autopoll=false;
-  if(_DL_POLL){clearInterval(_DL_POLL);_DL_POLL=null;}
-  if(_DL_TICK){clearInterval(_DL_TICK);_DL_TICK=null;}
-}
-function toggleAutoPoll(){
-  if(S.autopoll){ stopAutoPoll(); toast("Auto-poll off"); }
-  else { startAutoPoll(); toast("Auto-poll on \u00b7 refreshing every 60s"); }
-  render();
-}
-function dlPlayerSearchRows(q){
-  q=String(q||"").trim().toLowerCase();
-  var ids=Object.keys(PLAYERS);
-  if(!q) return "<div style='font-size:12.5px;color:#7b8597;padding:4px 2px'>Type a name to look up any of the "+ids.length+" priced hitters.</div>";
-  var hits=ids.filter(function(id){var nm=PLAYERS[id].name||""; return nm.toLowerCase().indexOf(q)>=0 || norm(nm).indexOf(q)>=0;}).slice(0,30);
-  if(!hits.length) return "<div style='font-size:12.5px;color:#7b8597;padding:4px 2px'>No hitter matches that name.</div>";
-  return hits.map(function(id){var p=PLAYERS[id];var best=p.best||(p.markets&&p.markets[0]&&p.markets[0].odds)||"";return "<div data-act='player' data-player='"+id+"' class='hovrow' style='cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;border-radius:11px;background:var(--surface);border:1px solid var(--line);margin-bottom:7px'><div style='min-width:0'><div style='font-weight:700;font-size:14px'>"+esc(p.name)+"</div><div style='font-size:12px;color:#8b94a6'>"+esc(p.sub||"")+"</div></div><div style='font-family:\"Space Grotesk\";font-weight:700;color:"+AC+";white-space:nowrap'>"+esc(String(best))+"</div><span data-act='watch' data-player='"+id+"' style='cursor:pointer;font-size:17px;margin-left:2px;color:"+(dlIsWatched(id)?GOLD:"#5b6475")+"'>"+(dlIsWatched(id)?"\u2605":"\u2606")+"</span></div>";}).join("");
-}
-function dlPlayerSearch(){
-  var box="<input id='dlPlayerSearchInput' placeholder='Search all hitters by name\u2026' value='"+esc(S.search||"")+"' oninput='window._dlPlayerSearch(this.value)' style='width:100%;box-sizing:border-box;padding:12px 14px;border-radius:12px;border:1px solid var(--line2);background:var(--surface);color:#eef1f6;font-size:16px;margin-bottom:11px'/>";
-  return "<div style='margin-bottom:16px'>"+sectHead("\ud83d\udd0d","Player search")+box+"<div id='dlPlayerSearchResults'>"+dlPlayerSearchRows(S.search||"")+"</div></div>";
-}
-window._dlPlayerSearch=function(v){ S.search=v; var el=document.getElementById("dlPlayerSearchResults"); if(el) el.innerHTML=dlPlayerSearchRows(v); };
-function dlWatch(){ try{return JSON.parse(localStorage.getItem("dl_watch")||"[]")||[];}catch(e){return [];} }
-function dlSaveWatch(a){ try{localStorage.setItem("dl_watch",JSON.stringify(a));}catch(e){} }
-function dlIsWatched(id){ if(!id) return false; return dlWatch().indexOf(id)>=0; }
-function dlToggleWatch(id){ if(!id) return; var a=dlWatch(); var i=a.indexOf(id); if(i>=0){a.splice(i,1);toast("Removed from watchlist");}else{a.unshift(id);toast("Pinned to watchlist");} dlSaveWatch(a); }
-function dlWatchSection(){
-  var a=dlWatch().filter(function(id){return PLAYERS[id];});
-  if(!a.length) return "";
-  var rows=a.map(function(id){var p=PLAYERS[id];var best=p.best||(p.markets&&p.markets[0]&&p.markets[0].odds)||"";return "<div class='hovrow' style='display:flex;align-items:center;gap:12px;padding:11px 13px;border-radius:11px;background:var(--surface);border:1px solid var(--line);margin-bottom:7px'><div data-act='player' data-player='"+id+"' style='cursor:pointer;flex:1;min-width:0'><div style='font-weight:700;font-size:14px'>"+esc(p.name)+"</div><div style='font-size:12px;color:#8b94a6'>"+esc(p.sub||"")+"</div></div><div style='font-family:\"Space Grotesk\";font-weight:700;color:"+AC+";white-space:nowrap'>"+esc(String(best))+"</div><span data-act='watch' data-player='"+id+"' style='cursor:pointer;font-size:17px;color:"+GOLD+"'>\u2605</span></div>";}).join("");
-  return "<div style='margin-bottom:16px'>"+sectHead("\u2b50","Watchlist ("+a.length+")")+rows+"</div>";
-}
-function dlSyncCard(){
-  var k=dlUserKey();
-  return "<div style='background:var(--surface);border:1px solid var(--line2);border-radius:16px;padding:18px;margin-bottom:14px'><div style='display:flex;align-items:center;gap:9px;margin-bottom:6px'><span style='font-size:17px'>\ud83d\udd17</span><div style='font-family:\"Space Grotesk\";font-weight:700;font-size:15px'>Cross-device sync</div></div><div style='font-size:12.5px;color:#8b94a6;line-height:1.45;margin-bottom:12px'>Your tracked bets are saved to your Render server under this sync key. Enter the same key on another device to follow them.</div><div style='display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px'><code style='font-family:\"Space Grotesk\";font-size:14px;font-weight:700;color:"+AC+";background:var(--surface2);padding:8px 12px;border-radius:9px'>"+esc(k)+"</code><button data-act='copykey' class='btng' style='padding:8px 12px;border:1px solid rgba(255,255,255,.14);border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;color:#c3cad6;background:transparent'>Copy key</button></div><div style='display:flex;gap:8px;flex-wrap:wrap'><input id='dlKeyInput' placeholder='Paste a sync key from another device' style='flex:1;min-width:180px;box-sizing:border-box;padding:9px 12px;border-radius:10px;border:1px solid var(--line2);background:var(--surface2);color:#eef1f6;font-size:16px'/><button data-act='setkey' class='btng' style='padding:9px 14px;border:1px solid rgba(255,255,255,.14);border-radius:10px;cursor:pointer;font-weight:700;font-size:12px;color:#0a0c11;background:var(--ac)'>Sync</button></div></div>";
-}
-
 function loadBoard(kind){
   if(S.loading) return; S.loading=true; render();
   fetch(CFG.backend+"/api/board?league=mlb",{mode:"cors"}).then(function(r){return r.ok?r.json():null;}).then(function(b){
@@ -830,14 +990,14 @@ function dlMapSaved(list){
 function dlSync(opts){
   opts=opts||{};
   if(typeof CFG==="undefined"||!CFG||!CFG.backend) return;
-  fetch(CFG.backend+"/api/state?user="+dlUserKey(),{method:"GET",mode:"cors"}).then(function(r){return r.ok?r.json():null;}).then(function(stt){
+  fetch(CFG.backend+"/api/state",{method:"GET",mode:"cors"}).then(function(r){return r.ok?r.json():null;}).then(function(stt){
     if(stt&&stt.savedParlays){ SAVED=dlMapSaved(stt.savedParlays); render(); }
-    if(opts.grade){ fetch(CFG.backend+"/api/grade?user="+dlUserKey(),{method:"POST",mode:"cors",headers:{"Content-Type":"application/json"},body:"{}"}).then(function(r){return r.ok?r.json():null;}).then(function(g){ if(g&&g.state&&g.state.savedParlays){ SAVED=dlMapSaved(g.state.savedParlays); render(); } }).catch(function(){}); }
+    if(opts.grade){ fetch(CFG.backend+"/api/grade",{method:"POST",mode:"cors",headers:{"Content-Type":"application/json"},body:"{}"}).then(function(r){return r.ok?r.json():null;}).then(function(g){ if(g&&g.state&&g.state.savedParlays){ SAVED=dlMapSaved(g.state.savedParlays); render(); } }).catch(function(){}); }
   }).catch(function(){});
 }
 function dlPersist(parlay){
   if(typeof CFG==="undefined"||!CFG||!CFG.backend) return;
-  fetch(CFG.backend+"/api/state?user="+dlUserKey(),{method:"POST",mode:"cors",headers:{"Content-Type":"application/json"},body:JSON.stringify({savedParlays:[parlay]})}).then(function(r){return r.ok?r.json():null;}).then(function(res){ if(res&&res.state&&res.state.savedParlays){ SAVED=dlMapSaved(res.state.savedParlays); render(); } }).catch(function(){});
+  fetch(CFG.backend+"/api/state",{method:"POST",mode:"cors",headers:{"Content-Type":"application/json"},body:JSON.stringify({savedParlays:[parlay]})}).then(function(r){return r.ok?r.json():null;}).then(function(res){ if(res&&res.state&&res.state.savedParlays){ SAVED=dlMapSaved(res.state.savedParlays); render(); } }).catch(function(){});
 }
 function loadLive(){
   if(S.liveLoading) return;
@@ -855,7 +1015,7 @@ function loadLive(){
     var pct=totalBoard?Math.round(hit/totalBoard*100):0;
     LIVE_TRACKER={hit:hit,total:totalBoard,predicted:predicted,slate:slate,pct:pct,pending:Math.max(0,totalBoard-hit)};
     var gl=d.gamesLive||0;
-    LIVE_LAST_MS=Date.now(); S.lastPoll=LIVE_LAST_MS; LIVE_META="Polling \u00b7 "+gl+" game"+(gl===1?"":"s")+" live \u00b7 updated "+dlAgo(LIVE_LAST_MS);
+    LIVE_META="Polling · "+gl+" game"+(gl===1?"":"s")+" live · just now";
     render();
   }).catch(function(){ S.liveLoading=false; LIVE_META="Could not reach live feed"; render(); });
 }
@@ -891,13 +1051,8 @@ function exportFeatureStore(){
 document.addEventListener("click",function(e){
   var el=e.target.closest&&e.target.closest("[data-act]"); if(!el) return;
   var a=el.dataset.act;
-  if(a==="tab"){ S.tab=el.dataset.tab; S.drawer=null; if(S.tab==="track") dlSync({grade:true}); if(S.tab==="live") loadLive(); render(); }
+  if(a==="tab"){ S.tab=el.dataset.tab; S.drawer=null; if(S.tab==="track") dlSync({grade:true}); render(); }
   else if(a==="player"){ var p=PLAYERS[el.dataset.player]; if(p){ S.drawer=p; render(); } }
-  else if(a==="watch"){ var wid=el.dataset.player; if(wid){ dlToggleWatch(wid); render(); } }
-  else if(a==="togglepoll"){ toggleAutoPoll(); }
-  else if(a==="refreshlive"){ loadLive(); toast("Refreshing live feed"); }
-  else if(a==="copykey"){ try{navigator.clipboard.writeText(dlUserKey());}catch(e){} toast("Sync key copied"); }
-  else if(a==="setkey"){ var _ki=document.getElementById("dlKeyInput"); if(_ki&&_ki.value.trim()){ dlSetUserKey(_ki.value); } else { toast("Enter a sync key first"); } }
   else if(a==="closeDrawer"){ if(e.target!==el && a==="closeDrawer" && el.tagName!=="BUTTON" && e.target.closest("[data-act=closeDrawer]")!==el){} S.drawer=null; render(); }
   else if(a==="addLeg"){ var dp=S.drawer||{}; S.slip.push({name:el.dataset.name,market:el.dataset.market,mk:dlMkCode(el.dataset.market),id:(dp&&dp.id)||null,gamePk:(dp&&dp.gamePk!=null)?dp.gamePk:null,date:(dp&&dp.mlbDate)||null,book:"Best",american:el.dataset.odds,prob:parseFloat(el.dataset.prob)}); S.drawer=null; toast("Added "+el.dataset.name+" to slip"); render(); }
   else if(a==="rmLeg"){ S.slip.splice(+el.dataset.i,1); render(); }
@@ -912,8 +1067,17 @@ document.addEventListener("click",function(e){
   else if(a==="saveparlay"){ if(S.slip.length){ var rc=recompute(); var pl={id:"p"+dlNowMs()+"_"+Math.floor(Math.random()*1e4),savedAt:dlNowMs(),result:"pending",stake:S.stake,odds:fmtAm(decToAm(rc.dec)),sub:((rc.prob*100).toFixed(1)+"% win"),title:S.slip.map(function(l){return l.name+" \u2014 "+l.market;}).join(" \u00b7 "),legData:dlLegData(S.slip)}; try{SAVED.unshift(dlMapSaved([pl])[0]);}catch(e){} dlPersist(pl); toast("Saved parlay to Tracking"); S.tab="track"; render(); } }
   else if(a==="track"){ toast("Sent to Tracking"); } else if(a==="trackcombo"){ var b=CURBUILDS[+el.dataset.i]; if(b){ var rl=b.rawLegs||(b.legs||[]).map(function(l){var nm=String(l[0]).split(" \u2014 ")[0];var lb=String(l[0]).split(" \u2014 ")[1]||"HR";return {name:nm,label:lb,odds:l[1]};}); var parlay={id:"p"+dlNowMs()+"_"+Math.floor(Math.random()*1e4),savedAt:dlNowMs(),result:"pending",stake:S.stake,odds:b.odds,sub:(b.win+" win \u00b7 "+b.ev),title:(b.legs||[]).map(function(l){return l[0];}).join(" \u00b7 "),legData:dlLegData(rl)}; try{SAVED.unshift(dlMapSaved([parlay])[0]);}catch(e){} dlPersist(parlay); toast("Saved "+b.legs.length+"-leg parlay to Tracking"); S.tab="track"; render(); } }
   else if(a==="toolcard"){ toast(el.dataset.v); }
+  else if(a==="ulxmode"){ if(!S.ulx) ulxInit(); S.ulx.mode=el.dataset.m; ulxSave(); render(); }
+  else if(a==="ulxtoggle"){ if(!S.ulx) ulxInit(); var _up=el.dataset.k.split("."); if(S.ulx[_up[0]]){ S.ulx[_up[0]][_up[1]]=!S.ulx[_up[0]][_up[1]]; ulxSave(); render(); } }
+  else if(a==="ulxfollow"){ if(!S.ulx) ulxInit(); S.ulx.followed=(el.dataset.v==="yes"); ulxSave(); render(); }
+  else if(a==="ulxreset"){ try{localStorage.removeItem("ulx-"+ulxDay());}catch(e){} S.ulx=null; ulxInit(); render(); toast("Reset today's ULX sheet"); }
+  else if(a==="ulxbuild"){ runUlxBuild(); }
+  else if(a==="ulxregen"){ ulxRegen(); }
+  else if(a==="ulxswap"){ ulxSwap(parseInt(el.dataset.i,10)); }
+  else if(a==="ulxaddall"){ ulxAddAll(); }
 });
 document.addEventListener("input",function(e){
+  if(e.target&&e.target.dataset&&e.target.dataset.ulx){ var _up=e.target.dataset.ulx.split("."); if(S.ulx&&S.ulx[_up[0]]){ S.ulx[_up[0]][_up[1]]=e.target.value; ulxSave(); } }
   if(e.target&&e.target.id==="stakeInput"){
     S.stake=Math.max(0,parseFloat(e.target.value)||0);
     var r=recompute(); var win=S.stake*(r.dec-1);
@@ -924,7 +1088,6 @@ document.addEventListener("input",function(e){
 
 /* ===================== BOOT ===================== */
 render();
-try{dlSync({});}catch(e){}
 console.log("DingerLab "+APP_VERSION+" — "+APP_UPDATED);
 </script>
 </body>
